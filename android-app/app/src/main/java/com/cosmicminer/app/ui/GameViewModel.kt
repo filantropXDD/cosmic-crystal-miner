@@ -282,6 +282,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun buyUpgrade(upgradeId: String) {
         val definition = GameCatalog.upgrades.find { it.id == upgradeId } ?: return
         val currentLevel = upgradeLevels[upgradeId] ?: 0
+        if (currentLevel >= GameCatalog.MAX_UPGRADE_LEVEL) return
         val cost = definition.costAtLevel(currentLevel)
 
         if (crystals >= cost) {

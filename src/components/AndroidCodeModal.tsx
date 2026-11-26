@@ -68,7 +68,7 @@ export const AndroidCodeModal: React.FC<AndroidCodeModalProps> = ({ onClose }) =
             <FileCode2 className="w-5 h-5 text-cyan-300 shrink-0" />
             <div className="min-w-0">
               <h2 id="android-code-title" className="font-display text-base font-bold text-slate-100 truncate">
-                Исходный код Android (Kotlin + Jetpack Compose) · v1.1.0
+                Исходный код Android (Kotlin + Jetpack Compose) · v1.1.1
               </h2>
               <p className="text-xs text-slate-400 truncate">
                 Папка проекта: android-app/ · Material 3 · DataStore · AudioTrack · ViewModel

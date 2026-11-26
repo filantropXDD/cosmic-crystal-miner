@@ -66,6 +66,8 @@ export interface PersistedGameState {
   lastActiveTimestampMs: number;
 }
 
+export const MAX_PLAYER_LEVEL = 200;
+export const MAX_UPGRADE_LEVEL = 200;
 export const PRESTIGE_BASE_THRESHOLD = 100_000;
 export const OVERCHARGE_DURATION_SEC = 10;
 export const OVERCHARGE_MULTIPLIER = 5;
@@ -81,20 +83,38 @@ export function nextDarkMatterRequirement(currentPotential: number): number {
   return next * next * PRESTIGE_BASE_THRESHOLD;
 }
 
-export const RANKS: MinerRank[] = [
-  { level: 1, title: 'Новичок', xpThreshold: 0, multiplier: 1.0 },
-  { level: 2, title: 'Стажёр орбиты', xpThreshold: 120, multiplier: 1.15 },
-  { level: 3, title: 'Шахтёр', xpThreshold: 800, multiplier: 1.35 },
-  { level: 4, title: 'Рейнджер пояса', xpThreshold: 3500, multiplier: 1.6 },
-  { level: 5, title: 'Мастер', xpThreshold: 15000, multiplier: 2.0 },
-  { level: 6, title: 'Звёздный магнат', xpThreshold: 65000, multiplier: 2.5 },
-  { level: 7, title: 'Космический барон', xpThreshold: 250000, multiplier: 3.2 },
-  { level: 8, title: 'Повелитель сингулярности', xpThreshold: 1000000, multiplier: 4.0 },
-  { level: 9, title: 'Хранитель туманности', xpThreshold: 5000000, multiplier: 5.0 },
-  { level: 10, title: 'Архитектор галактик', xpThreshold: 25000000, multiplier: 6.5 },
-  { level: 11, title: 'Покоритель пустоты', xpThreshold: 120000000, multiplier: 8.5 },
-  { level: 12, title: 'Бог кристаллов', xpThreshold: 600000000, multiplier: 12.0 },
-];
+function titleForLevel(level: number): string {
+  if (level <= 15) return 'Новичок';
+  if (level <= 30) return 'Стажёр орбиты';
+  if (level <= 49) return 'Шахтёр';
+  if (level <= 69) return 'Рейнджер пояса';
+  if (level <= 89) return 'Мастер';
+  if (level <= 109) return 'Звёздный магнат';
+  if (level <= 129) return 'Космический барон';
+  if (level <= 149) return 'Повелитель сингулярности';
+  if (level <= 169) return 'Хранитель туманности';
+  if (level <= 184) return 'Архитектор галактик';
+  if (level <= 199) return 'Покоритель пустоты';
+  return 'Бог кристаллов';
+}
+
+export const RANKS: MinerRank[] = Array.from({ length: MAX_PLAYER_LEVEL }, (_, i) => {
+  const level = i + 1;
+  const xpThreshold =
+    level === 1
+      ? 0
+      : level === MAX_PLAYER_LEVEL
+      ? 600_000_000
+      : Math.floor(25 * Math.pow(24_000_000, (level - 2) / 198));
+  const t = (level - 1) / (MAX_PLAYER_LEVEL - 1);
+  const multiplier = Math.round((1 + 11 * Math.pow(t, 2.2)) * 100) / 100;
+  return {
+    level,
+    title: titleForLevel(level),
+    xpThreshold,
+    multiplier,
+  };
+});
 
 export const UPGRADES: UpgradeDefinition[] = [
   {

@@ -120,6 +120,8 @@ data class GameUiState(
 )
 
 object GameCatalog {
+    const val MAX_PLAYER_LEVEL = 200
+    const val MAX_UPGRADE_LEVEL = 200
     const val PRESTIGE_BASE_THRESHOLD = 100_000.0
     const val OVERCHARGE_DURATION_SEC = 10
     const val OVERCHARGE_MULTIPLIER = 5.0
@@ -135,20 +137,37 @@ object GameCatalog {
         return next.toDouble() * next.toDouble() * PRESTIGE_BASE_THRESHOLD
     }
 
-    val ranks: List<MinerRank> = listOf(
-        MinerRank(1, "Новичок", 0.0, 1.0),
-        MinerRank(2, "Стажёр орбиты", 120.0, 1.15),
-        MinerRank(3, "Шахтёр", 800.0, 1.35),
-        MinerRank(4, "Рейнджер пояса", 3_500.0, 1.6),
-        MinerRank(5, "Мастер", 15_000.0, 2.0),
-        MinerRank(6, "Звёздный магнат", 65_000.0, 2.5),
-        MinerRank(7, "Космический барон", 250_000.0, 3.2),
-        MinerRank(8, "Повелитель сингулярности", 1_000_000.0, 4.0),
-        MinerRank(9, "Хранитель туманности", 5_000_000.0, 5.0),
-        MinerRank(10, "Архитектор галактик", 25_000_000.0, 6.5),
-        MinerRank(11, "Покоритель пустоты", 120_000_000.0, 8.5),
-        MinerRank(12, "Бог кристаллов", 600_000_000.0, 12.0)
-    )
+    private fun titleForLevel(level: Int): String = when {
+        level <= 15 -> "Новичок"
+        level <= 30 -> "Стажёр орбиты"
+        level <= 49 -> "Шахтёр"
+        level <= 69 -> "Рейнджер пояса"
+        level <= 89 -> "Мастер"
+        level <= 109 -> "Звёздный магнат"
+        level <= 129 -> "Космический барон"
+        level <= 149 -> "Повелитель сингулярности"
+        level <= 169 -> "Хранитель туманности"
+        level <= 184 -> "Архитектор галактик"
+        level <= 199 -> "Покоритель пустоты"
+        else -> "Бог кристаллов"
+    }
+
+    val ranks: List<MinerRank> = (1..MAX_PLAYER_LEVEL).map { level ->
+        val xpThreshold = when (level) {
+            1 -> 0.0
+            MAX_PLAYER_LEVEL -> 600_000_000.0
+            else -> floor(25.0 * (24_000_000.0).pow((level - 2) / 198.0))
+        }
+        val t = (level - 1) / (MAX_PLAYER_LEVEL - 1).toDouble()
+        val rawMult = 1.0 + 11.0 * t.pow(2.2)
+        val multiplier = kotlin.math.round(rawMult * 100.0) / 100.0
+        MinerRank(
+            level = level,
+            title = titleForLevel(level),
+            xpThreshold = xpThreshold,
+            multiplier = multiplier
+        )
+    }
 
     val upgrades: List<UpgradeDefinition> = listOf(
         UpgradeDefinition(

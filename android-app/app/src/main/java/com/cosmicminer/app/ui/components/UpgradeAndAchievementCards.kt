@@ -54,7 +54,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cosmicminer.app.model.AchievementItemUi
@@ -90,6 +89,8 @@ private fun UpgradeCard(
     onBuy: () -> Unit
 ) {
     val isClickType = item.definition.type == UpgradeType.CLICK_POWER
+    val isMaxLevel = item.level >= GameCatalog.MAX_UPGRADE_LEVEL
+    val isBuyable = !isMaxLevel && item.canAfford
     val accentColor = if (isClickType) CosmicColors.NeonCyan else CosmicColors.NeonPurpleBright
     val icon = upgradeIconFor(item.definition.id)
 
@@ -99,7 +100,7 @@ private fun UpgradeCard(
         colors = CardDefaults.cardColors(containerColor = CosmicColors.SurfaceCard),
         border = BorderStroke(
             width = 1.dp,
-            color = if (item.canAfford) accentColor.copy(alpha = 0.45f) else CosmicColors.BorderSubtle
+            color = if (isBuyable) accentColor.copy(alpha = 0.45f) else CosmicColors.BorderSubtle
         )
     ) {
         Row(
@@ -142,7 +143,7 @@ private fun UpgradeCard(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "Ур. ${item.level}",
+                        text = "Ур. ${item.level}/${GameCatalog.MAX_UPGRADE_LEVEL}",
                         color = accentColor,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
@@ -162,7 +163,7 @@ private fun UpgradeCard(
 
             Button(
                 onClick = onBuy,
-                enabled = item.canAfford,
+                enabled = isBuyable,
                 shape = RoundedCornerShape(12.dp),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                 colors = ButtonDefaults.buttonColors(
@@ -171,10 +172,10 @@ private fun UpgradeCard(
                     disabledContainerColor = CosmicColors.SurfaceElevated.copy(alpha = 0.55f),
                     disabledContentColor = CosmicColors.TextSecondary.copy(alpha = 0.55f)
                 ),
-                modifier = Modifier.alpha(if (item.canAfford) 1f else 0.6f)
+                modifier = Modifier.alpha(if (isBuyable || isMaxLevel) 1f else 0.6f)
             ) {
                 Text(
-                    text = NumberFormatter.format(item.nextCost),
+                    text = if (isMaxLevel) "МАКС." else NumberFormatter.format(item.nextCost),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold
                 )

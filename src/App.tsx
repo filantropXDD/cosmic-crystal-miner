@@ -3,6 +3,7 @@ import { Code2, Settings } from 'lucide-react';
 import {
   ACHIEVEMENTS,
   MAX_OFFLINE_SECONDS,
+  MAX_UPGRADE_LEVEL,
   OVERCHARGE_DURATION_SEC,
   OVERCHARGE_MULTIPLIER,
   OfflineReward,
@@ -345,6 +346,7 @@ export default function App() {
 
     setGame((prev) => {
       const level = prev.upgradeLevels[upgradeId] ?? 0;
+      if (level >= MAX_UPGRADE_LEVEL) return prev;
       const cost = getUpgradeCost(def, level);
       if (prev.crystals < cost) return prev;
 
@@ -475,6 +477,12 @@ export default function App() {
         upgrades?: Record<string, number>;
         achievements?: string[];
       };
+      const clampedUpgrades: Record<string, number> = {};
+      if (parsed.upgrades) {
+        Object.entries(parsed.upgrades).forEach(([id, lvl]) => {
+          clampedUpgrades[id] = Math.min(MAX_UPGRADE_LEVEL, Math.max(0, Math.floor(Number(lvl) || 0)));
+        });
+      }
       const restored: PersistedGameState = {
         ...INITIAL_STATE,
         crystals: Math.max(0, Number(parsed.crystals ?? 0)),
@@ -488,7 +496,7 @@ export default function App() {
         prestigeCount: Math.max(0, Number(parsed.prestigeCount ?? 0)),
         isVibrationEnabled: parsed.isVibrationEnabled ?? true,
         isSoundEnabled: parsed.isSoundEnabled ?? true,
-        upgradeLevels: parsed.upgrades ?? {},
+        upgradeLevels: clampedUpgrades,
         claimedAchievements: Array.isArray(parsed.achievements) ? parsed.achievements : [],
         lastActiveTimestampMs: Date.now(),
       };
@@ -562,12 +570,12 @@ export default function App() {
             {/* Rank & XP Bar */}
             <div className="mt-5">
               <div className="text-xs font-bold text-amber-300 leading-snug">
-                Ранг {currentRank.level} · {currentRank.title}
+                Уровень {currentRank.level} / 200 · {currentRank.title}
               </div>
               <div className="mt-0.5 font-mono-num text-[11px] text-slate-400">
                 {nextRank
                   ? `Множитель x${currentRank.multiplier} · ${formatCrystalCount(game.experience)} / ${formatCrystalCount(nextRank.xpThreshold)}`
-                  : `Макс. ранг · Множитель x${currentRank.multiplier}`}
+                  : `Макс. уровень · Множитель x${currentRank.multiplier}`}
               </div>
               <div className="mt-2 h-2 w-full rounded-full bg-slate-800/90 overflow-hidden">
                 <div

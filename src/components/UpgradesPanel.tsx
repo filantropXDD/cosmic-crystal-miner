@@ -14,6 +14,7 @@ import {
   Network,
 } from 'lucide-react';
 import {
+  MAX_UPGRADE_LEVEL,
   UPGRADES,
   UpgradeDefinition,
   formatCrystalCount,
@@ -51,8 +52,9 @@ export const UpgradesPanel: React.FC<UpgradesPanelProps> = ({
 
   const renderCard = (upgrade: UpgradeDefinition) => {
     const level = upgradeLevels[upgrade.id] ?? 0;
+    const isMaxLevel = level >= MAX_UPGRADE_LEVEL;
     const cost = getUpgradeCost(upgrade, level);
-    const canAfford = crystals >= cost;
+    const canAfford = !isMaxLevel && crystals >= cost;
     const isClick = upgrade.type === 'CLICK_POWER';
     const Icon = ICON_MAP[upgrade.id] ?? Zap;
 
@@ -87,7 +89,7 @@ export const UpgradesPanel: React.FC<UpgradesPanelProps> = ({
                 isClick ? 'text-cyan-300' : 'text-violet-300'
               }`}
             >
-              Ур. {level}
+              Ур. {level}/{MAX_UPGRADE_LEVEL}
             </span>{' '}
             · {upgrade.description}
           </p>
@@ -97,15 +99,17 @@ export const UpgradesPanel: React.FC<UpgradesPanelProps> = ({
           type="button"
           onClick={() => onBuyUpgrade(upgrade.id)}
           disabled={!canAfford}
-          className={`min-h-[44px] min-w-[84px] px-3.5 py-2 rounded-xl font-mono-num text-xs font-bold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
+          className={`min-h-[44px] min-w-[84px] px-3.5 py-2 rounded-xl font-mono-num text-xs font-bold whitespace-nowrap shrink-0 transition-all ${
             canAfford
               ? isClick
-                ? 'bg-cyan-400 text-slate-950 hover:bg-cyan-300 active:scale-95 shadow-sm shadow-cyan-500/20'
-                : 'bg-violet-500 text-white hover:bg-violet-400 active:scale-95 shadow-sm shadow-violet-500/20'
+                ? 'bg-cyan-400 text-slate-950 hover:bg-cyan-300 active:scale-95 shadow-sm shadow-cyan-500/20 cursor-pointer'
+                : 'bg-violet-500 text-white hover:bg-violet-400 active:scale-95 shadow-sm shadow-violet-500/20 cursor-pointer'
+              : isMaxLevel
+              ? 'bg-slate-800/80 text-slate-400 cursor-default'
               : 'bg-slate-800/70 text-slate-500 opacity-60 cursor-not-allowed'
           }`}
         >
-          {formatCrystalCount(cost)}
+          {isMaxLevel ? 'МАКС.' : formatCrystalCount(cost)}
         </button>
       </div>
     );

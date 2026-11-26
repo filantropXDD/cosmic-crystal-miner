@@ -429,7 +429,7 @@ private fun RankProgressSection(
             .padding(horizontal = 20.dp)
     ) {
         Text(
-            text = "Ранг $rankLevel · $rankTitle",
+            text = "Уровень $rankLevel / 200 · $rankTitle",
             color = CosmicColors.NeonGold,
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
@@ -440,7 +440,7 @@ private fun RankProgressSection(
             text = if (nextThreshold != null) {
                 "Множитель x$multiplier · ${NumberFormatter.format(experience)} / ${NumberFormatter.format(nextThreshold)}"
             } else {
-                "Макс. ранг · Множитель x$multiplier"
+                "Макс. уровень · Множитель x$multiplier"
             },
             color = CosmicColors.TextSecondary,
             fontSize = 11.sp

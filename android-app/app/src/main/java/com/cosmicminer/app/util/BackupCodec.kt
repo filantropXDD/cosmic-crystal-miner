@@ -47,7 +47,7 @@ object BackupCodec {
 
             val upgradesObj = obj.optJSONObject("upgrades")
             val levels = GameCatalog.upgrades.associate { def ->
-                def.id to (upgradesObj?.optInt(def.id, 0) ?: 0).coerceAtLeast(0)
+                def.id to (upgradesObj?.optInt(def.id, 0) ?: 0).coerceIn(0, GameCatalog.MAX_UPGRADE_LEVEL)
             }
 
             val achArray = obj.optJSONArray("achievements")

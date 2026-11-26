@@ -22,11 +22,26 @@ android {
 
     signingConfigs {
         getByName("debug") {
-            storeFile = file("debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
-            storeType = "PKCS12"
+            val localKeystore = file("debug.keystore")
+            val encodedKeystore = file("signing-debug.txt")
+            val resolvedKeystore = when {
+                localKeystore.exists() -> localKeystore
+                encodedKeystore.exists() -> {
+                    val out = layout.projectDirectory.file(".gradle/signing/debug.keystore").asFile
+                    out.parentFile.mkdirs()
+                    val cleanBase64 = encodedKeystore.readText().replace(Regex("\\s+"), "")
+                    out.writeBytes(java.util.Base64.getDecoder().decode(cleanBase64))
+                    out
+                }
+                else -> null
+            }
+            if (resolvedKeystore != null) {
+                storeFile = resolvedKeystore
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+                storeType = "PKCS12"
+            }
         }
     }
 

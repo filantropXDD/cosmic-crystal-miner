@@ -128,7 +128,7 @@ export const CrystalCanvas: React.FC<CrystalCanvasProps> = ({
       const baseR = 92;
 
       const lvl = rankRef.current;
-      const evolutionStage = lvl >= 10 ? 4 : lvl >= 7 ? 3 : lvl >= 4 ? 2 : 1;
+      const evolutionStage = lvl >= 150 ? 4 : lvl >= 100 ? 3 : lvl >= 50 ? 2 : 1;
       const isOvercharged = overchargeRef.current > 0;
 
       // Stage 4: Black Hole Accretion Halo

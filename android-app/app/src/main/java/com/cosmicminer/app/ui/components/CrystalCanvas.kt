@@ -121,12 +121,12 @@ fun CrystalArena(
         label = "pulse_glow"
     )
 
-    // Evolution stage based on rank (1..12)
+    // Evolution stage based on player level (1..200)
     val evolutionStage = when {
-        rankLevel >= 10 -> 4 // Black hole / plasma event horizon
-        rankLevel >= 7 -> 3  // Twin rings + golden plasma core
-        rankLevel >= 4 -> 2  // Gold facet edges + 2nd ring
-        else -> 1            // Classic cosmic crystal
+        rankLevel >= 150 -> 4 // Black hole / plasma event horizon
+        rankLevel >= 100 -> 3 // Twin rings + golden plasma core
+        rankLevel >= 50 -> 2  // Gold facet edges + 2nd ring
+        else -> 1             // Classic cosmic crystal
     }
     val isOvercharged = overchargeSecondsLeft > 0
 
