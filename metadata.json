@@ -1,0 +1,6 @@
+{
+  "name": "Космический добытчик кристаллов",
+  "description": "Космическая игра-кликер (Android Kotlin + Jetpack Compose и интерактивная веб-версия): добывайте кристаллы, улучшайте буры и дронов, повышайте ранг и открывайте достижения.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

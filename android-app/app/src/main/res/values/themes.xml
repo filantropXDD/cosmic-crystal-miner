@@ -1,0 +1,6 @@
+<resources>
+    <style name="Theme.CosmicCrystalMiner" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#060814</item>
+        <item name="android:navigationBarColor">#090D1E</item>
+    </style>
+</resources>
