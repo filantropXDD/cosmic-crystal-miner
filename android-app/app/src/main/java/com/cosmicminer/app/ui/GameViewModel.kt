@@ -11,8 +11,10 @@ import com.cosmicminer.app.model.BottomTab
 import com.cosmicminer.app.model.GameCatalog
 import com.cosmicminer.app.model.GameUiState
 import com.cosmicminer.app.model.MinerRank
+import com.cosmicminer.app.model.OfflineReward
 import com.cosmicminer.app.model.UpgradeItemUi
 import com.cosmicminer.app.model.UpgradeType
+import com.cosmicminer.app.util.SoundEffects
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,15 +28,27 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = GamePreferencesRepository(application.applicationContext)
 
     private var crystals = 0.0
+    private var runCrystalsEarned = 0.0
     private var totalCrystalsEarned = 0.0
     private var experience = 0.0
     private var totalClicks = 0L
     private var criticalHits = 0L
+    private var cometsCaught = 0L
+    private var darkMatter = 0L
+    private var prestigeCount = 0
     private var upgradeLevels = mutableMapOf<String, Int>()
     private var claimedAchievements = mutableSetOf<String>()
     private var selectedTab = BottomTab.UPGRADES
     private var isVibrationEnabled = true
+    private var isSoundEnabled = true
     private var isLoaded = false
+
+    private var overchargeTicksRemaining = 0
+    private var isCometVisible = false
+    private var cometTicksRemaining = 0
+    private var nextCometDelayTicks = 350 // 35s after launch
+    private var cometSeed = 0L
+    private var offlineReward: OfflineReward? = null
 
     private val _uiState = MutableStateFlow(GameUiState())
     val uiState: StateFlow<GameUiState> = _uiState.asStateFlow()
@@ -43,36 +57,97 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val saved = repository.gameDataFlow.first()
             crystals = saved.crystals
+            runCrystalsEarned = saved.runCrystalsEarned
             totalCrystalsEarned = saved.totalCrystalsEarned
             experience = saved.experience
             totalClicks = saved.totalClicks
             criticalHits = saved.criticalHits
+            cometsCaught = saved.cometsCaught
+            darkMatter = saved.darkMatter
+            prestigeCount = saved.prestigeCount
             upgradeLevels = saved.upgradeLevels.toMutableMap()
             claimedAchievements = saved.claimedAchievements.toMutableSet()
             isVibrationEnabled = saved.isVibrationEnabled
+            isSoundEnabled = saved.isSoundEnabled
+
+            // Calculate offline income
+            val nowMs = System.currentTimeMillis()
+            if (saved.lastActiveTimestampMs > 0L) {
+                val elapsedSec = ((nowMs - saved.lastActiveTimestampMs) / 1000L)
+                    .coerceIn(0L, GameCatalog.MAX_OFFLINE_SECONDS)
+                val passive = calculatePassivePerSecond()
+                if (elapsedSec >= 10L && passive > 0.0) {
+                    val earned = passive * elapsedSec.toDouble()
+                    crystals += earned
+                    runCrystalsEarned += earned
+                    totalCrystalsEarned += earned
+                    experience += earned
+                    offlineReward = OfflineReward(
+                        elapsedSeconds = elapsedSec,
+                        crystalsEarned = earned
+                    )
+                }
+            }
+
             isLoaded = true
             publishUiState()
+            persistNow()
         }
 
-        // Smooth passive income loop (10 ticks per second)
+        // Main game loop (10 ticks per second)
         viewModelScope.launch {
-            var tickCounter = 0
+            var saveTickCounter = 0
             while (true) {
                 delay(100L)
                 if (!isLoaded) continue
+
+                var needsPublish = false
 
                 val passive = calculatePassivePerSecond()
                 if (passive > 0.0) {
                     val delta = passive / 10.0
                     crystals += delta
+                    runCrystalsEarned += delta
                     totalCrystalsEarned += delta
                     experience += delta
+                    needsPublish = true
+                }
+
+                // Overcharge countdown
+                if (overchargeTicksRemaining > 0) {
+                    val prevSec = (overchargeTicksRemaining + 9) / 10
+                    overchargeTicksRemaining--
+                    val newSec = (overchargeTicksRemaining + 9) / 10
+                    if (prevSec != newSec || overchargeTicksRemaining == 0) {
+                        needsPublish = true
+                    }
+                }
+
+                // Random cosmic comet event timer
+                if (isCometVisible) {
+                    cometTicksRemaining--
+                    if (cometTicksRemaining <= 0) {
+                        isCometVisible = false
+                        nextCometDelayTicks = Random.nextInt(400, 600) // 40-60s
+                        needsPublish = true
+                    }
+                } else {
+                    nextCometDelayTicks--
+                    if (nextCometDelayTicks <= 0) {
+                        isCometVisible = true
+                        cometTicksRemaining = 65 // 6.5s fly-by window
+                        cometSeed = System.currentTimeMillis()
+                        needsPublish = true
+                    }
+                }
+
+                if (needsPublish) {
                     publishUiState()
                 }
 
-                tickCounter++
-                if (tickCounter >= 20) {
-                    tickCounter = 0
+                saveTickCounter++
+                if (saveTickCounter >= 20) {
+                    saveTickCounter = 0
                     persistNow()
                 }
             }
@@ -90,6 +165,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val gained = if (isCrit) baseClick * 3.0 else baseClick
 
         crystals += gained
+        runCrystalsEarned += gained
         totalCrystalsEarned += gained
         experience += gained
         totalClicks += 1L
@@ -97,8 +173,43 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             criticalHits += 1L
         }
 
+        if (isSoundEnabled) {
+            SoundEffects.playTap(isCrit)
+        }
+
         publishUiState()
         return ClickResult(gained = gained, isCritical = isCrit)
+    }
+
+    fun catchComet(): Double {
+        if (!isCometVisible) return 0.0
+        isCometVisible = false
+        nextCometDelayTicks = Random.nextInt(400, 600)
+        cometsCaught += 1L
+        overchargeTicksRemaining = GameCatalog.OVERCHARGE_DURATION_SEC * 10
+
+        val bonus = maxOf(
+            calculateClickPowerWithoutOvercharge() * 25.0,
+            calculatePassivePerSecond() * 20.0,
+            100.0
+        )
+        crystals += bonus
+        runCrystalsEarned += bonus
+        totalCrystalsEarned += bonus
+        experience += bonus
+
+        if (isSoundEnabled) {
+            SoundEffects.playComet()
+        }
+
+        publishUiState()
+        viewModelScope.launch { persistNow() }
+        return bonus
+    }
+
+    fun dismissOfflineReward() {
+        offlineReward = null
+        publishUiState()
     }
 
     fun buyUpgrade(upgradeId: String) {
@@ -109,6 +220,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (crystals >= cost) {
             crystals -= cost
             upgradeLevels[upgradeId] = currentLevel + 1
+            if (isSoundEnabled) {
+                SoundEffects.playPurchase()
+            }
             publishUiState()
             viewModelScope.launch { persistNow() }
         }
@@ -122,11 +236,36 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (currentValue >= definition.targetValue) {
             claimedAchievements.add(achievementId)
             crystals += definition.rewardCrystals
+            runCrystalsEarned += definition.rewardCrystals
             totalCrystalsEarned += definition.rewardCrystals
             experience += definition.rewardCrystals
+            if (isSoundEnabled) {
+                SoundEffects.playPurchase()
+            }
             publishUiState()
             viewModelScope.launch { persistNow() }
         }
+    }
+
+    fun performCollapse() {
+        val gainedDarkMatter = GameCatalog.calculatePotentialDarkMatter(runCrystalsEarned)
+        if (gainedDarkMatter <= 0L) return
+
+        darkMatter += gainedDarkMatter
+        prestigeCount += 1
+        crystals = 0.0
+        runCrystalsEarned = 0.0
+        experience = 0.0
+        overchargeTicksRemaining = 0
+        upgradeLevels.clear()
+
+        if (isSoundEnabled) {
+            SoundEffects.playPrestige()
+        }
+
+        selectedTab = BottomTab.UPGRADES
+        publishUiState()
+        viewModelScope.launch { persistNow() }
     }
 
     fun selectTab(tab: BottomTab) {
@@ -138,21 +277,35 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         isVibrationEnabled = enabled
         publishUiState()
         viewModelScope.launch {
-            repository.saveVibrationSetting(enabled)
+            repository.saveSettings(isVibrationEnabled, isSoundEnabled)
+        }
+    }
+
+    fun setSoundEnabled(enabled: Boolean) {
+        isSoundEnabled = enabled
+        publishUiState()
+        viewModelScope.launch {
+            repository.saveSettings(isVibrationEnabled, isSoundEnabled)
         }
     }
 
     fun resetProgress() {
         crystals = 0.0
+        runCrystalsEarned = 0.0
         totalCrystalsEarned = 0.0
         experience = 0.0
         totalClicks = 0L
         criticalHits = 0L
+        cometsCaught = 0L
+        darkMatter = 0L
+        prestigeCount = 0
+        overchargeTicksRemaining = 0
+        offlineReward = null
         upgradeLevels.clear()
         claimedAchievements.clear()
         publishUiState()
         viewModelScope.launch {
-            repository.resetProgress(keepVibrationSetting = isVibrationEnabled)
+            repository.resetProgress(keepVibration = isVibrationEnabled, keepSound = isSoundEnabled)
         }
     }
 
@@ -167,13 +320,19 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         repository.saveProgress(
             PersistedGameData(
                 crystals = crystals,
+                runCrystalsEarned = runCrystalsEarned,
                 totalCrystalsEarned = totalCrystalsEarned,
                 experience = experience,
                 totalClicks = totalClicks,
                 criticalHits = criticalHits,
+                cometsCaught = cometsCaught,
+                darkMatter = darkMatter,
+                prestigeCount = prestigeCount,
                 upgradeLevels = upgradeLevels.toMap(),
                 claimedAchievements = claimedAchievements.toSet(),
-                isVibrationEnabled = isVibrationEnabled
+                isVibrationEnabled = isVibrationEnabled,
+                isSoundEnabled = isSoundEnabled,
+                lastActiveTimestampMs = System.currentTimeMillis()
             )
         )
     }
@@ -192,12 +351,19 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         return current to next
     }
 
-    private fun calculateClickPower(): Double {
+    private fun prestigeMultiplier(): Double = 1.0 + darkMatter * 0.5
+
+    private fun calculateClickPowerWithoutOvercharge(): Double {
         val (rank, _) = resolveRank()
         val bonus = GameCatalog.upgrades
             .filter { it.type == UpgradeType.CLICK_POWER }
             .sumOf { (upgradeLevels[it.id] ?: 0) * it.baseGain }
-        return (1.0 + bonus) * rank.multiplier
+        return (1.0 + bonus) * rank.multiplier * prestigeMultiplier()
+    }
+
+    private fun calculateClickPower(): Double {
+        val overcharge = if (overchargeTicksRemaining > 0) GameCatalog.OVERCHARGE_MULTIPLIER else 1.0
+        return calculateClickPowerWithoutOvercharge() * overcharge
     }
 
     private fun calculatePassivePerSecond(): Double {
@@ -205,7 +371,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val bonus = GameCatalog.upgrades
             .filter { it.type == UpgradeType.PASSIVE_INCOME }
             .sumOf { (upgradeLevels[it.id] ?: 0) * it.baseGain }
-        return bonus * rank.multiplier
+        return bonus * rank.multiplier * prestigeMultiplier()
     }
 
     private fun getMetricValue(metric: AchievementMetric): Double {
@@ -215,6 +381,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             AchievementMetric.TOTAL_UPGRADES_BOUGHT -> upgradeLevels.values.sum().toDouble()
             AchievementMetric.PASSIVE_PER_SEC -> calculatePassivePerSecond()
             AchievementMetric.CRITICAL_HITS -> criticalHits.toDouble()
+            AchievementMetric.COMETS_CAUGHT -> cometsCaught.toDouble()
+            AchievementMetric.PRESTIGE_COUNT -> prestigeCount.toDouble()
         }
     }
 
@@ -252,22 +420,36 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
+        val potentialDm = GameCatalog.calculatePotentialDarkMatter(runCrystalsEarned)
+
         _uiState.value = GameUiState(
             crystals = crystals,
+            runCrystalsEarned = runCrystalsEarned,
             totalCrystalsEarned = totalCrystalsEarned,
             experience = experience,
             totalClicks = totalClicks,
             criticalHits = criticalHits,
+            cometsCaught = cometsCaught,
             clickPower = calculateClickPower(),
             passivePerSecond = calculatePassivePerSecond(),
             currentRank = currentRank,
             nextRank = nextRank,
             rankProgress = rankProgress,
+            darkMatter = darkMatter,
+            prestigeCount = prestigeCount,
+            potentialDarkMatter = potentialDm,
+            prestigeMultiplier = prestigeMultiplier(),
+            nextDarkMatterThreshold = GameCatalog.nextDarkMatterRequirement(potentialDm),
+            overchargeSecondsLeft = (overchargeTicksRemaining + 9) / 10,
+            isCometVisible = isCometVisible,
+            cometSeed = cometSeed,
+            offlineReward = offlineReward,
             upgrades = upgradeItems,
             achievements = achievementItems,
             unclaimedAchievementsCount = achievementItems.count { it.isUnlocked && !it.isClaimed },
             selectedTab = selectedTab,
             isVibrationEnabled = isVibrationEnabled,
+            isSoundEnabled = isSoundEnabled,
             isLoaded = isLoaded
         )
     }

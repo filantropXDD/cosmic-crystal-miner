@@ -2,74 +2,129 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Code2, Settings } from 'lucide-react';
 import {
   ACHIEVEMENTS,
+  MAX_OFFLINE_SECONDS,
+  OVERCHARGE_DURATION_SEC,
+  OVERCHARGE_MULTIPLIER,
+  OfflineReward,
   PersistedGameState,
   RANKS,
   UPGRADES,
+  calculatePotentialDarkMatter,
   formatCrystalCount,
+  formatDuration,
   formatRate,
   getUpgradeCost,
+  nextDarkMatterRequirement,
 } from './types/game';
 import { CrystalCanvas } from './components/CrystalCanvas';
 import { UpgradesPanel } from './components/UpgradesPanel';
 import { AchievementsPanel } from './components/AchievementsPanel';
+import { PrestigePanel } from './components/PrestigePanel';
 import { SettingsModal } from './components/SettingsModal';
 import { AndroidCodeModal } from './components/AndroidCodeModal';
-import { playCrystalTapSound, playUpgradeSound } from './utils/audio';
+import {
+  playCometSound,
+  playCrystalTapSound,
+  playPrestigeSound,
+  playUpgradeSound,
+} from './utils/audio';
 
 const STORAGE_KEY = 'cosmic_miner_save_v1';
 
 const INITIAL_STATE: PersistedGameState = {
   crystals: 0,
+  runCrystalsEarned: 0,
   totalCrystalsEarned: 0,
   experience: 0,
   totalClicks: 0,
   criticalHits: 0,
+  cometsCaught: 0,
+  darkMatter: 0,
+  prestigeCount: 0,
   upgradeLevels: {},
   claimedAchievements: [],
   isVibrationEnabled: true,
   isSoundEnabled: true,
+  lastActiveTimestampMs: 0,
 };
 
-function loadInitialState(): PersistedGameState {
-  if (typeof window === 'undefined') return INITIAL_STATE;
+function computeRank(experience: number) {
+  let curr = RANKS[0];
+  let next: (typeof RANKS)[number] | null = RANKS[1] ?? null;
+  for (let i = 0; i < RANKS.length; i++) {
+    if (experience >= RANKS[i].xpThreshold) {
+      curr = RANKS[i];
+      next = RANKS[i + 1] ?? null;
+    }
+  }
+  return { curr, next };
+}
+
+function loadInitialData(): { state: PersistedGameState; offline: OfflineReward | null } {
+  if (typeof window === 'undefined') return { state: INITIAL_STATE, offline: null };
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return INITIAL_STATE;
+    if (!raw) return { state: INITIAL_STATE, offline: null };
     const parsed = JSON.parse(raw) as Partial<PersistedGameState>;
-    return {
+    const merged: PersistedGameState = {
       ...INITIAL_STATE,
       ...parsed,
+      runCrystalsEarned: parsed.runCrystalsEarned ?? parsed.totalCrystalsEarned ?? 0,
       upgradeLevels: parsed.upgradeLevels ?? {},
       claimedAchievements: Array.isArray(parsed.claimedAchievements)
         ? parsed.claimedAchievements
         : [],
     };
+
+    let offline: OfflineReward | null = null;
+    const now = Date.now();
+    if (merged.lastActiveTimestampMs > 0) {
+      const elapsedSec = Math.min(
+        MAX_OFFLINE_SECONDS,
+        Math.max(0, Math.floor((now - merged.lastActiveTimestampMs) / 1000))
+      );
+      const { curr } = computeRank(merged.experience);
+      const prestigeMult = 1 + merged.darkMatter * 0.5;
+      const passiveBonus = UPGRADES.filter((u) => u.type === 'PASSIVE_INCOME').reduce(
+        (sum, u) => sum + (merged.upgradeLevels[u.id] ?? 0) * u.baseGain,
+        0
+      );
+      const passivePerSec = passiveBonus * curr.multiplier * prestigeMult;
+
+      if (elapsedSec >= 10 && passivePerSec > 0) {
+        const earned = passivePerSec * elapsedSec;
+        merged.crystals += earned;
+        merged.runCrystalsEarned += earned;
+        merged.totalCrystalsEarned += earned;
+        merged.experience += earned;
+        offline = { elapsedSeconds: elapsedSec, crystalsEarned: earned };
+      }
+    }
+
+    merged.lastActiveTimestampMs = now;
+    return { state: merged, offline };
   } catch {
-    return INITIAL_STATE;
+    return { state: INITIAL_STATE, offline: null };
   }
 }
 
 export default function App() {
-  const [game, setGame] = useState<PersistedGameState>(loadInitialState);
-  const [activeTab, setActiveTab] = useState<'UPGRADES' | 'ACHIEVEMENTS'>('UPGRADES');
+  const initialData = useMemo(() => loadInitialData(), []);
+  const [game, setGame] = useState<PersistedGameState>(initialData.state);
+  const [offlineReward, setOfflineReward] = useState<OfflineReward | null>(initialData.offline);
+  const [activeTab, setActiveTab] = useState<'UPGRADES' | 'ACHIEVEMENTS' | 'PRESTIGE'>('UPGRADES');
   const [showSettings, setShowSettings] = useState(false);
   const [showAndroidCode, setShowAndroidCode] = useState(false);
+
+  const [overchargeSecondsLeft, setOverchargeSecondsLeft] = useState(0);
+  const [isCometVisible, setIsCometVisible] = useState(false);
+  const [cometSeed, setCometSeed] = useState(1);
 
   const gameRef = useRef(game);
   gameRef.current = game;
 
-  // Resolve current and next rank
   const { currentRank, nextRank, rankProgress } = useMemo(() => {
-    let curr = RANKS[0];
-    let next: (typeof RANKS)[number] | null = RANKS[1] ?? null;
-
-    for (let i = 0; i < RANKS.length; i++) {
-      if (game.experience >= RANKS[i].xpThreshold) {
-        curr = RANKS[i];
-        next = RANKS[i + 1] ?? null;
-      }
-    }
-
+    const { curr, next } = computeRank(game.experience);
     const progress = next
       ? Math.min(
           1,
@@ -80,33 +135,47 @@ export default function App() {
           )
         )
       : 1;
-
     return { currentRank: curr, nextRank: next, rankProgress: progress };
   }, [game.experience]);
 
-  // Derived click power & passive income per second
-  const clickPower = useMemo(() => {
+  const prestigeMultiplier = useMemo(() => 1 + game.darkMatter * 0.5, [game.darkMatter]);
+
+  const baseClickPower = useMemo(() => {
     const bonus = UPGRADES.filter((u) => u.type === 'CLICK_POWER').reduce(
       (sum, u) => sum + (game.upgradeLevels[u.id] ?? 0) * u.baseGain,
       0
     );
-    return (1 + bonus) * currentRank.multiplier;
-  }, [game.upgradeLevels, currentRank.multiplier]);
+    return (1 + bonus) * currentRank.multiplier * prestigeMultiplier;
+  }, [game.upgradeLevels, currentRank.multiplier, prestigeMultiplier]);
+
+  const clickPower = useMemo(
+    () => baseClickPower * (overchargeSecondsLeft > 0 ? OVERCHARGE_MULTIPLIER : 1),
+    [baseClickPower, overchargeSecondsLeft]
+  );
 
   const passivePerSecond = useMemo(() => {
     const bonus = UPGRADES.filter((u) => u.type === 'PASSIVE_INCOME').reduce(
       (sum, u) => sum + (game.upgradeLevels[u.id] ?? 0) * u.baseGain,
       0
     );
-    return bonus * currentRank.multiplier;
-  }, [game.upgradeLevels, currentRank.multiplier]);
+    return bonus * currentRank.multiplier * prestigeMultiplier;
+  }, [game.upgradeLevels, currentRank.multiplier, prestigeMultiplier]);
 
   const totalUpgradesBought = useMemo(
     () => Object.values(game.upgradeLevels).reduce((sum, lvl) => sum + lvl, 0),
     [game.upgradeLevels]
   );
 
-  // Unclaimed ready achievements counter
+  const potentialDarkMatter = useMemo(
+    () => calculatePotentialDarkMatter(game.runCrystalsEarned),
+    [game.runCrystalsEarned]
+  );
+
+  const nextDmThreshold = useMemo(
+    () => nextDarkMatterRequirement(potentialDarkMatter),
+    [potentialDarkMatter]
+  );
+
   const unclaimedCount = useMemo(() => {
     return ACHIEVEMENTS.filter((ach) => {
       if (game.claimedAchievements.includes(ach.id)) return false;
@@ -127,6 +196,12 @@ export default function App() {
         case 'CRITICAL_HITS':
           val = game.criticalHits;
           break;
+        case 'COMETS_CAUGHT':
+          val = game.cometsCaught;
+          break;
+        case 'PRESTIGE_COUNT':
+          val = game.prestigeCount;
+          break;
       }
       return val >= ach.targetValue;
     }).length;
@@ -135,6 +210,8 @@ export default function App() {
     game.totalClicks,
     game.totalCrystalsEarned,
     game.criticalHits,
+    game.cometsCaught,
+    game.prestigeCount,
     totalUpgradesBought,
     passivePerSecond,
   ]);
@@ -151,25 +228,71 @@ export default function App() {
       setGame((prev) => ({
         ...prev,
         crystals: prev.crystals + delta,
+        runCrystalsEarned: prev.runCrystalsEarned + delta,
         totalCrystalsEarned: prev.totalCrystalsEarned + delta,
         experience: prev.experience + delta,
+        lastActiveTimestampMs: Date.now(),
       }));
     }, 100);
 
     return () => window.clearInterval(interval);
   }, []);
 
-  // Persist progress periodically & on state changes (throttled cleanly)
+  // Overcharge 1s countdown
+  useEffect(() => {
+    if (overchargeSecondsLeft <= 0) return;
+    const timer = window.setTimeout(() => {
+      setOverchargeSecondsLeft((s) => Math.max(0, s - 1));
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [overchargeSecondsLeft]);
+
+  // Random cosmic comet event every 35-55 seconds
+  useEffect(() => {
+    if (isCometVisible) {
+      const hideTimer = window.setTimeout(() => {
+        setIsCometVisible(false);
+      }, 6300);
+      return () => window.clearTimeout(hideTimer);
+    } else {
+      const delayMs = 35000 + Math.floor(Math.random() * 20000);
+      const spawnTimer = window.setTimeout(() => {
+        setCometSeed(Date.now());
+        setIsCometVisible(true);
+      }, delayMs);
+      return () => window.clearTimeout(spawnTimer);
+    }
+  }, [isCometVisible]);
+
+  // Persist progress periodically & on unload
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(gameRef.current));
+        window.localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ ...gameRef.current, lastActiveTimestampMs: Date.now() })
+        );
       } catch {
         // Ignore storage quota issues
       }
     }, 350);
     return () => window.clearTimeout(timer);
   }, [game]);
+
+  useEffect(() => {
+    const saveOnUnload = () => {
+      try {
+        window.localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ ...gameRef.current, lastActiveTimestampMs: Date.now() })
+        );
+      } catch {
+        // Ignore
+      }
+    };
+    window.addEventListener('beforeunload', saveOnUnload);
+    return () => window.removeEventListener('beforeunload', saveOnUnload);
+  }, []);
 
   const handleTapCrystal = useCallback(() => {
     const isCritical = Math.random() < 0.1;
@@ -182,14 +305,39 @@ export default function App() {
     setGame((prev) => ({
       ...prev,
       crystals: prev.crystals + gained,
+      runCrystalsEarned: prev.runCrystalsEarned + gained,
       totalCrystalsEarned: prev.totalCrystalsEarned + gained,
       experience: prev.experience + gained,
       totalClicks: prev.totalClicks + 1,
       criticalHits: prev.criticalHits + (isCritical ? 1 : 0),
+      lastActiveTimestampMs: Date.now(),
     }));
 
     return { gained, isCritical };
   }, [clickPower]);
+
+  const handleCatchComet = useCallback(() => {
+    if (!isCometVisible) return 0;
+    setIsCometVisible(false);
+    setOverchargeSecondsLeft(OVERCHARGE_DURATION_SEC);
+
+    const bonus = Math.max(baseClickPower * 25, passivePerSecond * 20, 100);
+    if (gameRef.current.isSoundEnabled) {
+      playCometSound();
+    }
+
+    setGame((prev) => ({
+      ...prev,
+      crystals: prev.crystals + bonus,
+      runCrystalsEarned: prev.runCrystalsEarned + bonus,
+      totalCrystalsEarned: prev.totalCrystalsEarned + bonus,
+      experience: prev.experience + bonus,
+      cometsCaught: prev.cometsCaught + 1,
+      lastActiveTimestampMs: Date.now(),
+    }));
+
+    return bonus;
+  }, [isCometVisible, baseClickPower, passivePerSecond]);
 
   const handleBuyUpgrade = useCallback((upgradeId: string) => {
     const def = UPGRADES.find((u) => u.id === upgradeId);
@@ -211,6 +359,7 @@ export default function App() {
           ...prev.upgradeLevels,
           [upgradeId]: level + 1,
         },
+        lastActiveTimestampMs: Date.now(),
       };
     });
   }, []);
@@ -227,19 +376,46 @@ export default function App() {
       return {
         ...prev,
         crystals: prev.crystals + def.rewardCrystals,
+        runCrystalsEarned: prev.runCrystalsEarned + def.rewardCrystals,
         totalCrystalsEarned: prev.totalCrystalsEarned + def.rewardCrystals,
         experience: prev.experience + def.rewardCrystals,
         claimedAchievements: [...prev.claimedAchievements, achievementId],
+        lastActiveTimestampMs: Date.now(),
       };
     });
   }, []);
 
+  const handlePerformCollapse = useCallback(() => {
+    const gainedDm = calculatePotentialDarkMatter(gameRef.current.runCrystalsEarned);
+    if (gainedDm <= 0) return;
+
+    if (gameRef.current.isSoundEnabled) {
+      playPrestigeSound();
+    }
+
+    setOverchargeSecondsLeft(0);
+    setActiveTab('UPGRADES');
+    setGame((prev) => ({
+      ...prev,
+      crystals: 0,
+      runCrystalsEarned: 0,
+      experience: 0,
+      upgradeLevels: {},
+      darkMatter: prev.darkMatter + gainedDm,
+      prestigeCount: prev.prestigeCount + 1,
+      lastActiveTimestampMs: Date.now(),
+    }));
+  }, []);
+
   const handleResetProgress = useCallback(() => {
+    setOverchargeSecondsLeft(0);
+    setOfflineReward(null);
     setGame((prev) => {
       const resetState: PersistedGameState = {
         ...INITIAL_STATE,
         isVibrationEnabled: prev.isVibrationEnabled,
         isSoundEnabled: prev.isSoundEnabled,
+        lastActiveTimestampMs: Date.now(),
       };
       try {
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(resetState));
@@ -255,7 +431,7 @@ export default function App() {
       {/* Compact Header */}
       <header className="w-full max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4 border-b border-slate-800/60">
         <h1 className="font-display text-base sm:text-lg font-bold tracking-tight text-slate-100 whitespace-nowrap truncate">
-          Космический добытчик
+          Cosmic Crystal Miner
         </h1>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -283,10 +459,14 @@ export default function App() {
       <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 py-4 lg:py-6 grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-8 items-stretch">
         {/* Left / Top Zone: Currency HUD, Rank Bar, Interactive Crystal */}
         <section className="lg:col-span-6 flex flex-col justify-between rounded-3xl bg-[#0D132B]/75 border border-violet-400/15 p-5 sm:p-6">
-          {/* Currency Counter */}
           <div>
-            <div className="text-xs font-medium text-slate-400">
-              Кристаллы
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-medium text-slate-400">Кристаллы</span>
+              {game.darkMatter > 0 && (
+                <span className="text-xs font-mono-num font-bold text-violet-300">
+                  {game.darkMatter} ТМ (x{formatRate(prestigeMultiplier)})
+                </span>
+              )}
             </div>
             <div className="font-display font-mono-num text-4xl sm:text-5xl font-extrabold text-white tracking-tight mt-0.5">
               {formatCrystalCount(game.crystals)}
@@ -324,22 +504,26 @@ export default function App() {
             </div>
           </div>
 
-          {/* Central Interactive Crystal Canvas */}
           <div className="my-auto py-3">
             <CrystalCanvas
+              rankLevel={currentRank.level}
+              overchargeSecondsLeft={overchargeSecondsLeft}
+              isCometVisible={isCometVisible}
+              cometSeed={cometSeed}
               onTapCrystal={handleTapCrystal}
+              onCatchComet={handleCatchComet}
               isVibrationEnabled={game.isVibrationEnabled}
             />
           </div>
         </section>
 
-        {/* Right / Bottom Zone: Upgrades & Achievements Tabs */}
-        <section className="lg:col-span-6 flex flex-col rounded-3xl bg-[#0B0F23]/95 border border-slate-800/90 overflow-hidden min-h-[440px] lg:max-h-[680px]">
-          <div className="grid grid-cols-2 p-1.5 bg-[#0E142D] border-b border-slate-800/80 shrink-0">
+        {/* Right / Bottom Zone: Upgrades, Achievements & Prestige Tabs */}
+        <section className="lg:col-span-6 flex flex-col rounded-3xl bg-[#0B0F23]/95 border border-slate-800/90 overflow-hidden min-h-[460px] lg:max-h-[680px]">
+          <div className="grid grid-cols-3 p-1.5 bg-[#0E142D] border-b border-slate-800/80 shrink-0">
             <button
               type="button"
               onClick={() => setActiveTab('UPGRADES')}
-              className={`min-h-[44px] rounded-2xl text-sm font-semibold whitespace-nowrap cursor-pointer transition-colors ${
+              className={`min-h-[44px] rounded-2xl text-xs sm:text-sm font-semibold whitespace-nowrap cursor-pointer transition-colors ${
                 activeTab === 'UPGRADES'
                   ? 'bg-[#1A2246] text-cyan-300 shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
@@ -350,7 +534,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveTab('ACHIEVEMENTS')}
-              className={`min-h-[44px] rounded-2xl text-sm font-semibold whitespace-nowrap cursor-pointer transition-colors flex items-center justify-center gap-2 ${
+              className={`min-h-[44px] rounded-2xl text-xs sm:text-sm font-semibold whitespace-nowrap cursor-pointer transition-colors flex items-center justify-center gap-1.5 ${
                 activeTab === 'ACHIEVEMENTS'
                   ? 'bg-[#1A2246] text-amber-300 shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
@@ -363,6 +547,22 @@ export default function App() {
                 </span>
               )}
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('PRESTIGE')}
+              className={`min-h-[44px] rounded-2xl text-xs sm:text-sm font-semibold whitespace-nowrap cursor-pointer transition-colors flex items-center justify-center gap-1.5 ${
+                activeTab === 'PRESTIGE'
+                  ? 'bg-[#1A2246] text-violet-300 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span>Коллапс</span>
+              {potentialDarkMatter > 0 && (
+                <span className="font-mono-num text-xs font-bold text-amber-300">
+                  (+{potentialDarkMatter})
+                </span>
+              )}
+            </button>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4">
@@ -372,20 +572,65 @@ export default function App() {
                 upgradeLevels={game.upgradeLevels}
                 onBuyUpgrade={handleBuyUpgrade}
               />
-            ) : (
+            ) : activeTab === 'ACHIEVEMENTS' ? (
               <AchievementsPanel
                 totalClicks={game.totalClicks}
                 totalCrystalsEarned={game.totalCrystalsEarned}
                 totalUpgradesBought={totalUpgradesBought}
                 passivePerSecond={passivePerSecond}
                 criticalHits={game.criticalHits}
+                cometsCaught={game.cometsCaught}
+                prestigeCount={game.prestigeCount}
                 claimedAchievements={game.claimedAchievements}
                 onClaimAchievement={handleClaimAchievement}
+              />
+            ) : (
+              <PrestigePanel
+                darkMatter={game.darkMatter}
+                prestigeCount={game.prestigeCount}
+                prestigeMultiplier={prestigeMultiplier}
+                potentialDarkMatter={potentialDarkMatter}
+                runCrystalsEarned={game.runCrystalsEarned}
+                nextDarkMatterThreshold={nextDmThreshold}
+                onPerformCollapse={handlePerformCollapse}
               />
             )}
           </div>
         </section>
       </main>
+
+      {offlineReward && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="offline-title"
+        >
+          <div className="w-full max-w-sm rounded-3xl bg-[#111732] border border-cyan-400/35 p-6 shadow-2xl space-y-4">
+            <h2 id="offline-title" className="font-display text-xl font-bold text-slate-100">
+              С возвращением!
+            </h2>
+            <p className="text-sm text-slate-300 leading-relaxed">
+              Пока вас не было (
+              <span className="font-semibold text-cyan-300">
+                {formatDuration(offlineReward.elapsedSeconds)}
+              </span>
+              ), ваш флот добыл{' '}
+              <span className="font-mono-num font-bold text-amber-300">
+                +{formatCrystalCount(offlineReward.crystalsEarned)}
+              </span>{' '}
+              кристаллов!
+            </p>
+            <button
+              type="button"
+              onClick={() => setOfflineReward(null)}
+              className="w-full min-h-[44px] rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold text-sm cursor-pointer transition-colors"
+            >
+              Забрать
+            </button>
+          </div>
+        </div>
+      )}
 
       {showSettings && (
         <SettingsModal
@@ -393,6 +638,8 @@ export default function App() {
           isSoundEnabled={game.isSoundEnabled}
           totalClicks={game.totalClicks}
           criticalHits={game.criticalHits}
+          cometsCaught={game.cometsCaught}
+          darkMatter={game.darkMatter}
           totalCrystalsEarned={game.totalCrystalsEarned}
           onToggleVibration={(enabled) =>
             setGame((prev) => ({ ...prev, isVibrationEnabled: enabled }))

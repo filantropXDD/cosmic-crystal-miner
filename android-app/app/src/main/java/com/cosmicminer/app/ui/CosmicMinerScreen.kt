@@ -15,8 +15,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -41,8 +44,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cosmicminer.app.model.BottomTab
+import com.cosmicminer.app.model.OfflineReward
 import com.cosmicminer.app.ui.components.AchievementsList
 import com.cosmicminer.app.ui.components.CrystalArena
+import com.cosmicminer.app.ui.components.PrestigeCollapsePanel
 import com.cosmicminer.app.ui.components.SettingsDialog
 import com.cosmicminer.app.ui.components.UpgradesList
 import com.cosmicminer.app.ui.theme.CosmicColors
@@ -53,12 +58,23 @@ fun CosmicMinerScreen(viewModel: GameViewModel) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
 
+    state.offlineReward?.let { reward ->
+        OfflineRewardDialog(
+            reward = reward,
+            onDismiss = viewModel::dismissOfflineReward
+        )
+    }
+
     if (showSettings) {
         SettingsDialog(
             isVibrationEnabled = state.isVibrationEnabled,
+            isSoundEnabled = state.isSoundEnabled,
             totalClicks = state.totalClicks,
             criticalHits = state.criticalHits,
+            cometsCaught = state.cometsCaught,
+            darkMatter = state.darkMatter,
             onVibrationChange = viewModel::setVibrationEnabled,
+            onSoundChange = viewModel::setSoundEnabled,
             onResetConfirmed = viewModel::resetProgress,
             onDismiss = { showSettings = false }
         )
@@ -83,15 +99,15 @@ fun CosmicMinerScreen(viewModel: GameViewModel) {
                 .statusBarsPadding()
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Top HUD
                 TopCurrencyHeader(
                     crystals = state.crystals,
                     passivePerSec = state.passivePerSecond,
                     clickPower = state.clickPower,
+                    darkMatter = state.darkMatter,
+                    prestigeMultiplier = state.prestigeMultiplier,
                     onOpenSettings = { showSettings = true }
                 )
 
-                // Rank / XP Progress Bar
                 RankProgressSection(
                     rankTitle = state.currentRank.title,
                     rankLevel = state.currentRank.level,
@@ -101,16 +117,19 @@ fun CosmicMinerScreen(viewModel: GameViewModel) {
                     nextThreshold = state.nextRank?.xpThreshold
                 )
 
-                // Central Interactive Crystal
                 CrystalArena(
+                    rankLevel = state.currentRank.level,
+                    overchargeSecondsLeft = state.overchargeSecondsLeft,
+                    isCometVisible = state.isCometVisible,
+                    cometSeed = state.cometSeed,
                     isVibrationEnabled = state.isVibrationEnabled,
                     onCrystalTap = viewModel::onCrystalClick,
+                    onCometTap = viewModel::catchComet,
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(0.42f)
                 )
 
-                // Bottom Panel: Tabs + Scrollable List
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -134,23 +153,32 @@ fun CosmicMinerScreen(viewModel: GameViewModel) {
                     ) {
                         tabs.forEach { tab ->
                             val selected = state.selectedTab == tab
+                            val badgeCount = when (tab) {
+                                BottomTab.ACHIEVEMENTS -> state.unclaimedAchievementsCount
+                                BottomTab.PRESTIGE -> if (state.potentialDarkMatter > 0L) 1 else 0
+                                else -> 0
+                            }
                             Tab(
                                 selected = selected,
                                 onClick = { viewModel.selectTab(tab) },
                                 text = {
-                                    if (tab == BottomTab.ACHIEVEMENTS && state.unclaimedAchievementsCount > 0) {
+                                    if (badgeCount > 0) {
                                         BadgedBox(
                                             badge = {
                                                 Badge(
-                                                    containerColor = CosmicColors.NeonGold,
+                                                    containerColor = if (tab == BottomTab.PRESTIGE) CosmicColors.NeonPurpleBright else CosmicColors.NeonGold,
                                                     contentColor = Color.Black
                                                 ) {
-                                                    Text(state.unclaimedAchievementsCount.toString())
+                                                    Text(
+                                                        if (tab == BottomTab.PRESTIGE) "+${state.potentialDarkMatter}"
+                                                        else badgeCount.toString()
+                                                    )
                                                 }
                                             }
                                         ) {
                                             Text(
                                                 text = tab.title,
+                                                fontSize = 13.sp,
                                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                                 color = if (selected) CosmicColors.TextPrimary else CosmicColors.TextSecondary
                                             )
@@ -158,6 +186,7 @@ fun CosmicMinerScreen(viewModel: GameViewModel) {
                                     } else {
                                         Text(
                                             text = tab.title,
+                                            fontSize = 13.sp,
                                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                             color = if (selected) CosmicColors.TextPrimary else CosmicColors.TextSecondary
                                         )
@@ -176,6 +205,15 @@ fun CosmicMinerScreen(viewModel: GameViewModel) {
                             achievements = state.achievements,
                             onClaimAchievement = viewModel::claimAchievement
                         )
+                        BottomTab.PRESTIGE -> PrestigeCollapsePanel(
+                            darkMatter = state.darkMatter,
+                            prestigeCount = state.prestigeCount,
+                            prestigeMultiplier = state.prestigeMultiplier,
+                            potentialDarkMatter = state.potentialDarkMatter,
+                            runCrystalsEarned = state.runCrystalsEarned,
+                            nextDarkMatterThreshold = state.nextDarkMatterThreshold,
+                            onCollapseConfirmed = viewModel::performCollapse
+                        )
                     }
                 }
             }
@@ -184,33 +222,85 @@ fun CosmicMinerScreen(viewModel: GameViewModel) {
 }
 
 @Composable
+private fun OfflineRewardDialog(
+    reward: OfflineReward,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CosmicColors.SurfaceCard,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Text(
+                text = "С возвращением!",
+                color = CosmicColors.TextPrimary,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Text(
+                text = "Пока вас не было (${NumberFormatter.formatDuration(reward.elapsedSeconds)}), ваш флот добыл +${NumberFormatter.format(reward.crystalsEarned)} кристаллов!",
+                color = CosmicColors.TextSecondary,
+                fontSize = 14.sp
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = CosmicColors.NeonCyan,
+                    contentColor = Color(0xFF04131D)
+                )
+            ) {
+                Text("Забрать", fontWeight = FontWeight.Bold)
+            }
+        }
+    )
+}
+
+@Composable
 private fun TopCurrencyHeader(
     crystals: Double,
     passivePerSec: Double,
     clickPower: Double,
+    darkMatter: Long,
+    prestigeMultiplier: Double,
     onOpenSettings: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = 20.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column {
-            Text(
-                text = "Кристаллы",
-                color = CosmicColors.TextSecondary,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium
-            )
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "Кристаллы",
+                    color = CosmicColors.TextSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                if (darkMatter > 0L) {
+                    Text(
+                        text = "$darkMatter ТМ (x${NumberFormatter.formatRate(prestigeMultiplier)})",
+                        color = CosmicColors.NeonPurpleBright,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
             Text(
                 text = NumberFormatter.format(crystals),
                 color = CosmicColors.TextPrimary,
-                fontSize = 34.sp,
+                fontSize = 32.sp,
                 fontWeight = FontWeight.ExtraBold
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(3.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
                     text = "+${NumberFormatter.formatRate(passivePerSec)} / сек",
@@ -265,9 +355,9 @@ private fun RankProgressSection(
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = if (nextThreshold != null) {
-                    "Множитель x$multiplier · ${NumberFormatter.format(experience)} / ${NumberFormatter.format(nextThreshold)}"
+                    "x$multiplier · ${NumberFormatter.format(experience)} / ${NumberFormatter.format(nextThreshold)}"
                 } else {
-                    "Макс. ранг · Множитель x$multiplier"
+                    "Макс. ранг · x$multiplier"
                 },
                 color = CosmicColors.TextSecondary,
                 fontSize = 11.sp

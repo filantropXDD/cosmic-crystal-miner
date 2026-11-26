@@ -22,7 +22,9 @@ export type AchievementMetric =
   | 'TOTAL_CRYSTALS_EARNED'
   | 'TOTAL_UPGRADES_BOUGHT'
   | 'PASSIVE_PER_SEC'
-  | 'CRITICAL_HITS';
+  | 'CRITICAL_HITS'
+  | 'COMETS_CAUGHT'
+  | 'PRESTIGE_COUNT';
 
 export interface AchievementDefinition {
   id: string;
@@ -39,29 +41,59 @@ export interface FloatingNumber {
   x: number;
   y: number;
   isCritical: boolean;
+  isComet?: boolean;
+}
+
+export interface OfflineReward {
+  elapsedSeconds: number;
+  crystalsEarned: number;
 }
 
 export interface PersistedGameState {
   crystals: number;
+  runCrystalsEarned: number;
   totalCrystalsEarned: number;
   experience: number;
   totalClicks: number;
   criticalHits: number;
+  cometsCaught: number;
+  darkMatter: number;
+  prestigeCount: number;
   upgradeLevels: Record<string, number>;
   claimedAchievements: string[];
   isVibrationEnabled: boolean;
   isSoundEnabled: boolean;
+  lastActiveTimestampMs: number;
+}
+
+export const PRESTIGE_BASE_THRESHOLD = 100_000;
+export const OVERCHARGE_DURATION_SEC = 10;
+export const OVERCHARGE_MULTIPLIER = 5;
+export const MAX_OFFLINE_SECONDS = 12 * 3600;
+
+export function calculatePotentialDarkMatter(runCrystalsEarned: number): number {
+  if (runCrystalsEarned < PRESTIGE_BASE_THRESHOLD) return 0;
+  return Math.floor(Math.sqrt(runCrystalsEarned / PRESTIGE_BASE_THRESHOLD));
+}
+
+export function nextDarkMatterRequirement(currentPotential: number): number {
+  const next = currentPotential + 1;
+  return next * next * PRESTIGE_BASE_THRESHOLD;
 }
 
 export const RANKS: MinerRank[] = [
   { level: 1, title: 'Новичок', xpThreshold: 0, multiplier: 1.0 },
-  { level: 2, title: 'Стажёр орбиты', xpThreshold: 100, multiplier: 1.15 },
-  { level: 3, title: 'Шахтёр', xpThreshold: 600, multiplier: 1.35 },
-  { level: 4, title: 'Рейнджер пояса', xpThreshold: 2500, multiplier: 1.6 },
-  { level: 5, title: 'Мастер', xpThreshold: 10000, multiplier: 2.0 },
-  { level: 6, title: 'Звёздный магнат', xpThreshold: 45000, multiplier: 2.5 },
-  { level: 7, title: 'Космический барон', xpThreshold: 180000, multiplier: 3.2 },
-  { level: 8, title: 'Повелитель сингулярности', xpThreshold: 750000, multiplier: 4.0 },
+  { level: 2, title: 'Стажёр орбиты', xpThreshold: 120, multiplier: 1.15 },
+  { level: 3, title: 'Шахтёр', xpThreshold: 800, multiplier: 1.35 },
+  { level: 4, title: 'Рейнджер пояса', xpThreshold: 3500, multiplier: 1.6 },
+  { level: 5, title: 'Мастер', xpThreshold: 15000, multiplier: 2.0 },
+  { level: 6, title: 'Звёздный магнат', xpThreshold: 65000, multiplier: 2.5 },
+  { level: 7, title: 'Космический барон', xpThreshold: 250000, multiplier: 3.2 },
+  { level: 8, title: 'Повелитель сингулярности', xpThreshold: 1000000, multiplier: 4.0 },
+  { level: 9, title: 'Хранитель туманности', xpThreshold: 5000000, multiplier: 5.0 },
+  { level: 10, title: 'Архитектор галактик', xpThreshold: 25000000, multiplier: 6.5 },
+  { level: 11, title: 'Покоритель пустоты', xpThreshold: 120000000, multiplier: 8.5 },
+  { level: 12, title: 'Бог кристаллов', xpThreshold: 600000000, multiplier: 12.0 },
 ];
 
 export const UPGRADES: UpgradeDefinition[] = [
@@ -102,6 +134,24 @@ export const UPGRADES: UpgradeDefinition[] = [
     costMultiplier: 1.15,
   },
   {
+    id: 'core_annihilator',
+    title: 'Аннигилятор коры',
+    description: '+600 к силе клика',
+    type: 'CLICK_POWER',
+    baseCost: 140000,
+    baseGain: 600,
+    costMultiplier: 1.15,
+  },
+  {
+    id: 'supernova_prism',
+    title: 'Сверхновая призма',
+    description: '+3.5K к силе клика',
+    type: 'CLICK_POWER',
+    baseCost: 1800000,
+    baseGain: 3500,
+    costMultiplier: 1.15,
+  },
+  {
     id: 'mini_drone',
     title: 'Мини-дрон',
     description: '+2 крист./сек',
@@ -135,6 +185,24 @@ export const UPGRADES: UpgradeDefinition[] = [
     type: 'PASSIVE_INCOME',
     baseCost: 28000,
     baseGain: 650,
+    costMultiplier: 1.15,
+  },
+  {
+    id: 'star_forge',
+    title: 'Звёздная кузница',
+    description: '+4.2K крист./сек',
+    type: 'PASSIVE_INCOME',
+    baseCost: 350000,
+    baseGain: 4200,
+    costMultiplier: 1.15,
+  },
+  {
+    id: 'multiverse_matrix',
+    title: 'Матрица вселенной',
+    description: '+30K крист./сек',
+    type: 'PASSIVE_INCOME',
+    baseCost: 4500000,
+    baseGain: 30000,
     costMultiplier: 1.15,
   },
 ];
@@ -180,6 +248,62 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     targetValue: 25,
     rewardCrystals: 2500,
   },
+  {
+    id: 'clicks_1000',
+    title: 'Ударная волна',
+    description: 'Сделать 1 000 кликов по кристаллу',
+    metric: 'TOTAL_CLICKS',
+    targetValue: 1000,
+    rewardCrystals: 5000,
+  },
+  {
+    id: 'upgrades_50',
+    title: 'Промышленный гигант',
+    description: 'Купить 50 улучшений за один заход',
+    metric: 'TOTAL_UPGRADES_BOUGHT',
+    targetValue: 50,
+    rewardCrystals: 15000,
+  },
+  {
+    id: 'comets_3',
+    title: 'Ловец комет',
+    description: 'Поймать 3 пролетающие кометы',
+    metric: 'COMETS_CAUGHT',
+    targetValue: 3,
+    rewardCrystals: 25000,
+  },
+  {
+    id: 'crystals_1m',
+    title: 'Миллионер орбиты',
+    description: 'Добыть 1M кристаллов за всё время',
+    metric: 'TOTAL_CRYSTALS_EARNED',
+    targetValue: 1000000,
+    rewardCrystals: 50000,
+  },
+  {
+    id: 'passive_5k',
+    title: 'Космический магнат',
+    description: 'Достичь пассивного дохода 5K/сек',
+    metric: 'PASSIVE_PER_SEC',
+    targetValue: 5000,
+    rewardCrystals: 150000,
+  },
+  {
+    id: 'crits_150',
+    title: 'Мастер резонанса',
+    description: 'Выбить 150 критических ударов',
+    metric: 'CRITICAL_HITS',
+    targetValue: 150,
+    rewardCrystals: 300000,
+  },
+  {
+    id: 'prestige_1',
+    title: 'Повелитель Коллапса',
+    description: 'Совершить свой первый Коллапс (престиж)',
+    metric: 'PRESTIGE_COUNT',
+    targetValue: 1,
+    rewardCrystals: 500000,
+  },
 ];
 
 export function getUpgradeCost(upgrade: UpgradeDefinition, level: number): number {
@@ -212,4 +336,15 @@ export function formatRate(value: number): string {
     return value.toFixed(1);
   }
   return formatCrystalCount(value);
+}
+
+export function formatDuration(totalSeconds: number): string {
+  const clamped = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(clamped / 3600);
+  const minutes = Math.floor((clamped % 3600) / 60);
+  const seconds = clamped % 60;
+
+  if (hours > 0) return `${hours} ч ${minutes} мин`;
+  if (minutes > 0) return `${minutes} мин ${seconds} сек`;
+  return `${seconds} сек`;
 }

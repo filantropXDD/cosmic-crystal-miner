@@ -7,7 +7,7 @@ object NumberFormatter {
     private val suffixes = listOf("", "K", "M", "B", "T", "Qa", "Qi")
 
     fun format(value: Double, decimalsIfLarge: Int = 1): String {
-        if (value < 0) return "0"
+        if (value < 0 || !value.isFinite()) return "0"
         if (value < 1_000.0) {
             return floor(value).toLong().toString()
         }
@@ -32,5 +32,18 @@ object NumberFormatter {
             return String.format(Locale.US, "%.1f", value)
         }
         return format(value)
+    }
+
+    fun formatDuration(totalSeconds: Long): String {
+        val clamped = totalSeconds.coerceAtLeast(0L)
+        val hours = clamped / 3600L
+        val minutes = (clamped % 3600L) / 60L
+        val seconds = clamped % 60L
+
+        return when {
+            hours > 0L -> "$hours ч $minutes мин"
+            minutes > 0L -> "$minutes мин $seconds сек"
+            else -> "$seconds сек"
+        }
     }
 }

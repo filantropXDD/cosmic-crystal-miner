@@ -10,6 +10,7 @@ import settingsDialogKt from '../../android-app/app/src/main/java/com/cosmicmine
 import gameModelsKt from '../../android-app/app/src/main/java/com/cosmicminer/app/model/GameModels.kt?raw';
 import repoKt from '../../android-app/app/src/main/java/com/cosmicminer/app/data/GamePreferencesRepository.kt?raw';
 import formatterKt from '../../android-app/app/src/main/java/com/cosmicminer/app/util/NumberFormatter.kt?raw';
+import soundKt from '../../android-app/app/src/main/java/com/cosmicminer/app/util/SoundEffects.kt?raw';
 import themeKt from '../../android-app/app/src/main/java/com/cosmicminer/app/ui/theme/Theme.kt?raw';
 import appGradle from '../../android-app/app/build.gradle.kts?raw';
 import manifestXml from '../../android-app/app/src/main/AndroidManifest.xml?raw';
@@ -27,6 +28,7 @@ const ANDROID_FILES = [
   { name: 'GameModels.kt', path: 'model/GameModels.kt', content: gameModelsKt },
   { name: 'GamePreferencesRepository.kt', path: 'data/GamePreferencesRepository.kt', content: repoKt },
   { name: 'NumberFormatter.kt', path: 'util/NumberFormatter.kt', content: formatterKt },
+  { name: 'SoundEffects.kt', path: 'util/SoundEffects.kt', content: soundKt },
   { name: 'Theme.kt', path: 'ui/theme/Theme.kt', content: themeKt },
   { name: 'MainActivity.kt', path: 'MainActivity.kt', content: mainActivityKt },
   { name: 'build.gradle.kts', path: 'app/build.gradle.kts', content: appGradle },
@@ -62,10 +64,10 @@ export const AndroidCodeModal: React.FC<AndroidCodeModalProps> = ({ onClose }) =
             <FileCode2 className="w-5 h-5 text-cyan-300 shrink-0" />
             <div className="min-w-0">
               <h2 id="android-code-title" className="font-display text-base font-bold text-slate-100 truncate">
-                Исходный код Android (Kotlin + Jetpack Compose)
+                Исходный код Android (Kotlin + Jetpack Compose) · v1.1.0
               </h2>
               <p className="text-xs text-slate-400 truncate">
-                Папка проекта: android-app/ · Material 3 · DataStore · ViewModel + Coroutines
+                Папка проекта: android-app/ · Material 3 · DataStore · AudioTrack · ViewModel
               </p>
             </div>
           </div>

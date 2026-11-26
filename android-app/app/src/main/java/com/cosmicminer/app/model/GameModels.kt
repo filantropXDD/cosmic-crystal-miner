@@ -2,6 +2,7 @@ package com.cosmicminer.app.model
 
 import kotlin.math.floor
 import kotlin.math.pow
+import kotlin.math.sqrt
 
 enum class UpgradeType {
     CLICK_POWER,
@@ -41,7 +42,9 @@ enum class AchievementMetric {
     TOTAL_CRYSTALS_EARNED,
     TOTAL_UPGRADES_BOUGHT,
     PASSIVE_PER_SEC,
-    CRITICAL_HITS
+    CRITICAL_HITS,
+    COMETS_CAUGHT,
+    PRESTIGE_COUNT
 }
 
 data class AchievementDefinition(
@@ -66,43 +69,81 @@ data class FloatingNumber(
     val text: String,
     val x: Float,
     val y: Float,
-    val isCritical: Boolean
+    val isCritical: Boolean,
+    val isComet: Boolean = false
+)
+
+data class OfflineReward(
+    val elapsedSeconds: Long,
+    val crystalsEarned: Double
 )
 
 enum class BottomTab(val title: String) {
     UPGRADES("Улучшения"),
-    ACHIEVEMENTS("Достижения")
+    ACHIEVEMENTS("Достижения"),
+    PRESTIGE("Коллапс")
 }
 
 data class GameUiState(
     val crystals: Double = 0.0,
+    val runCrystalsEarned: Double = 0.0,
     val totalCrystalsEarned: Double = 0.0,
     val experience: Double = 0.0,
     val totalClicks: Long = 0L,
     val criticalHits: Long = 0L,
+    val cometsCaught: Long = 0L,
     val clickPower: Double = 1.0,
     val passivePerSecond: Double = 0.0,
     val currentRank: MinerRank = GameCatalog.ranks.first(),
     val nextRank: MinerRank? = GameCatalog.ranks.getOrNull(1),
     val rankProgress: Float = 0f,
+    val darkMatter: Long = 0L,
+    val prestigeCount: Int = 0,
+    val potentialDarkMatter: Long = 0L,
+    val prestigeMultiplier: Double = 1.0,
+    val nextDarkMatterThreshold: Double = GameCatalog.PRESTIGE_BASE_THRESHOLD,
+    val overchargeSecondsLeft: Int = 0,
+    val isCometVisible: Boolean = false,
+    val cometSeed: Long = 0L,
+    val offlineReward: OfflineReward? = null,
     val upgrades: List<UpgradeItemUi> = emptyList(),
     val achievements: List<AchievementItemUi> = emptyList(),
     val unclaimedAchievementsCount: Int = 0,
     val selectedTab: BottomTab = BottomTab.UPGRADES,
     val isVibrationEnabled: Boolean = true,
+    val isSoundEnabled: Boolean = true,
     val isLoaded: Boolean = false
 )
 
 object GameCatalog {
+    const val PRESTIGE_BASE_THRESHOLD = 100_000.0
+    const val OVERCHARGE_DURATION_SEC = 10
+    const val OVERCHARGE_MULTIPLIER = 5.0
+    const val MAX_OFFLINE_SECONDS = 12L * 3600L
+
+    fun calculatePotentialDarkMatter(runCrystalsEarned: Double): Long {
+        if (runCrystalsEarned < PRESTIGE_BASE_THRESHOLD) return 0L
+        return floor(sqrt(runCrystalsEarned / PRESTIGE_BASE_THRESHOLD)).toLong()
+    }
+
+    fun nextDarkMatterRequirement(currentPotential: Long): Double {
+        val next = currentPotential + 1L
+        return next.toDouble() * next.toDouble() * PRESTIGE_BASE_THRESHOLD
+    }
+
     val ranks: List<MinerRank> = listOf(
         MinerRank(1, "Новичок", 0.0, 1.0),
-        MinerRank(2, "Стажёр орбиты", 100.0, 1.15),
-        MinerRank(3, "Шахтёр", 600.0, 1.35),
-        MinerRank(4, "Рейнджер пояса", 2_500.0, 1.6),
-        MinerRank(5, "Мастер", 10_000.0, 2.0),
-        MinerRank(6, "Звёздный магнат", 45_000.0, 2.5),
-        MinerRank(7, "Космический барон", 180_000.0, 3.2),
-        MinerRank(8, "Повелитель сингулярности", 750_000.0, 4.0)
+        MinerRank(2, "Стажёр орбиты", 120.0, 1.15),
+        MinerRank(3, "Шахтёр", 800.0, 1.35),
+        MinerRank(4, "Рейнджер пояса", 3_500.0, 1.6),
+        MinerRank(5, "Мастер", 15_000.0, 2.0),
+        MinerRank(6, "Звёздный магнат", 65_000.0, 2.5),
+        MinerRank(7, "Космический барон", 250_000.0, 3.2),
+        MinerRank(8, "Повелитель сингулярности", 1_000_000.0, 4.0),
+        MinerRank(9, "Хранитель туманности", 5_000_000.0, 5.0),
+        MinerRank(10, "Архитектор галактик", 25_000_000.0, 6.5),
+        MinerRank(11, "Покоритель пустоты", 120_000_000.0, 8.5),
+        MinerRank(12, "Бог кристаллов", 600_000_000.0, 12.0)
     )
 
     val upgrades: List<UpgradeDefinition> = listOf(
@@ -139,6 +180,22 @@ object GameCatalog {
             baseGain = 120.0
         ),
         UpgradeDefinition(
+            id = "core_annihilator",
+            title = "Аннигилятор коры",
+            description = "+600 к силе клика",
+            type = UpgradeType.CLICK_POWER,
+            baseCost = 140_000.0,
+            baseGain = 600.0
+        ),
+        UpgradeDefinition(
+            id = "supernova_prism",
+            title = "Сверхновая призма",
+            description = "+3.5K к силе клика",
+            type = UpgradeType.CLICK_POWER,
+            baseCost = 1_800_000.0,
+            baseGain = 3_500.0
+        ),
+        UpgradeDefinition(
             id = "mini_drone",
             title = "Мини-дрон",
             description = "+2 крист./сек",
@@ -169,6 +226,22 @@ object GameCatalog {
             type = UpgradeType.PASSIVE_INCOME,
             baseCost = 28_000.0,
             baseGain = 650.0
+        ),
+        UpgradeDefinition(
+            id = "star_forge",
+            title = "Звёздная кузница",
+            description = "+4.2K крист./сек",
+            type = UpgradeType.PASSIVE_INCOME,
+            baseCost = 350_000.0,
+            baseGain = 4_200.0
+        ),
+        UpgradeDefinition(
+            id = "multiverse_matrix",
+            title = "Матрица вселенной",
+            description = "+30K крист./сек",
+            type = UpgradeType.PASSIVE_INCOME,
+            baseCost = 4_500_000.0,
+            baseGain = 30_000.0
         )
     )
 
@@ -212,6 +285,62 @@ object GameCatalog {
             metric = AchievementMetric.CRITICAL_HITS,
             targetValue = 25.0,
             rewardCrystals = 2_500.0
+        ),
+        AchievementDefinition(
+            id = "clicks_1000",
+            title = "Ударная волна",
+            description = "Сделать 1 000 кликов по кристаллу",
+            metric = AchievementMetric.TOTAL_CLICKS,
+            targetValue = 1_000.0,
+            rewardCrystals = 5_000.0
+        ),
+        AchievementDefinition(
+            id = "upgrades_50",
+            title = "Промышленный гигант",
+            description = "Купить 50 улучшений за один заход",
+            metric = AchievementMetric.TOTAL_UPGRADES_BOUGHT,
+            targetValue = 50.0,
+            rewardCrystals = 15_000.0
+        ),
+        AchievementDefinition(
+            id = "comets_3",
+            title = "Ловец комет",
+            description = "Поймать 3 пролетающие кометы",
+            metric = AchievementMetric.COMETS_CAUGHT,
+            targetValue = 3.0,
+            rewardCrystals = 25_000.0
+        ),
+        AchievementDefinition(
+            id = "crystals_1m",
+            title = "Миллионер орбиты",
+            description = "Добыть 1M кристаллов за всё время",
+            metric = AchievementMetric.TOTAL_CRYSTALS_EARNED,
+            targetValue = 1_000_000.0,
+            rewardCrystals = 50_000.0
+        ),
+        AchievementDefinition(
+            id = "passive_5k",
+            title = "Космический магнат",
+            description = "Достичь пассивного дохода 5K/сек",
+            metric = AchievementMetric.PASSIVE_PER_SEC,
+            targetValue = 5_000.0,
+            rewardCrystals = 150_000.0
+        ),
+        AchievementDefinition(
+            id = "crits_150",
+            title = "Мастер резонанса",
+            description = "Выбить 150 критических ударов",
+            metric = AchievementMetric.CRITICAL_HITS,
+            targetValue = 150.0,
+            rewardCrystals = 300_000.0
+        ),
+        AchievementDefinition(
+            id = "prestige_1",
+            title = "Повелитель Коллапса",
+            description = "Совершить свой первый Коллапс (престиж)",
+            metric = AchievementMetric.PRESTIGE_COUNT,
+            targetValue = 1.0,
+            rewardCrystals = 500_000.0
         )
     )
 }

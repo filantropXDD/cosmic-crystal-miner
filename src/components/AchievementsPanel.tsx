@@ -12,6 +12,8 @@ interface AchievementsPanelProps {
   totalUpgradesBought: number;
   passivePerSecond: number;
   criticalHits: number;
+  cometsCaught: number;
+  prestigeCount: number;
   claimedAchievements: string[];
   onClaimAchievement: (achievementId: string) => void;
 }
@@ -22,6 +24,8 @@ export const AchievementsPanel: React.FC<AchievementsPanelProps> = ({
   totalUpgradesBought,
   passivePerSecond,
   criticalHits,
+  cometsCaught,
+  prestigeCount,
   claimedAchievements,
   onClaimAchievement,
 }) => {
@@ -37,6 +41,10 @@ export const AchievementsPanel: React.FC<AchievementsPanelProps> = ({
         return passivePerSecond;
       case 'CRITICAL_HITS':
         return criticalHits;
+      case 'COMETS_CAUGHT':
+        return cometsCaught;
+      case 'PRESTIGE_COUNT':
+        return prestigeCount;
     }
   };
 
@@ -95,7 +103,7 @@ export const AchievementsPanel: React.FC<AchievementsPanelProps> = ({
                     onClick={() => onClaimAchievement(item.id)}
                     className="min-h-[44px] px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 active:scale-95 text-slate-950 font-mono-num text-xs font-bold whitespace-nowrap cursor-pointer transition-all"
                   >
-                    Забрать награду (+{formatCrystalCount(item.rewardCrystals)})
+                    Забрать (+{formatCrystalCount(item.rewardCrystals)})
                   </button>
                 ) : (
                   <span className="text-xs font-mono-num font-semibold text-amber-300/80">

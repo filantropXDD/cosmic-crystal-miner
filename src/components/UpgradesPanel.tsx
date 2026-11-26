@@ -7,7 +7,11 @@ import {
   Orbit,
   Radio,
   Rocket,
+  Sparkles,
+  Sun,
   Zap,
+  Atom,
+  Network,
 } from 'lucide-react';
 import {
   UPGRADES,
@@ -27,10 +31,14 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   plasma_drill: Hammer,
   quantum_amplifier: Zap,
   gravity_hammer: Flame,
+  core_annihilator: Atom,
+  supernova_prism: Sun,
   mini_drone: Cpu,
   orbital_station: Radio,
   singularity_reactor: Rocket,
   dyson_sphere: Orbit,
+  star_forge: Sparkles,
+  multiverse_matrix: Network,
 };
 
 export const UpgradesPanel: React.FC<UpgradesPanelProps> = ({
