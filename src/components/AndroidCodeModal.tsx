@@ -11,6 +11,8 @@ import gameModelsKt from '../../android-app/app/src/main/java/com/cosmicminer/ap
 import repoKt from '../../android-app/app/src/main/java/com/cosmicminer/app/data/GamePreferencesRepository.kt?raw';
 import formatterKt from '../../android-app/app/src/main/java/com/cosmicminer/app/util/NumberFormatter.kt?raw';
 import soundKt from '../../android-app/app/src/main/java/com/cosmicminer/app/util/SoundEffects.kt?raw';
+import updateCheckerKt from '../../android-app/app/src/main/java/com/cosmicminer/app/util/UpdateChecker.kt?raw';
+import backupCodecKt from '../../android-app/app/src/main/java/com/cosmicminer/app/util/BackupCodec.kt?raw';
 import themeKt from '../../android-app/app/src/main/java/com/cosmicminer/app/ui/theme/Theme.kt?raw';
 import appGradle from '../../android-app/app/build.gradle.kts?raw';
 import manifestXml from '../../android-app/app/src/main/AndroidManifest.xml?raw';
@@ -27,6 +29,8 @@ const ANDROID_FILES = [
   { name: 'SettingsDialog.kt', path: 'ui/components/SettingsDialog.kt', content: settingsDialogKt },
   { name: 'GameModels.kt', path: 'model/GameModels.kt', content: gameModelsKt },
   { name: 'GamePreferencesRepository.kt', path: 'data/GamePreferencesRepository.kt', content: repoKt },
+  { name: 'UpdateChecker.kt', path: 'util/UpdateChecker.kt', content: updateCheckerKt },
+  { name: 'BackupCodec.kt', path: 'util/BackupCodec.kt', content: backupCodecKt },
   { name: 'NumberFormatter.kt', path: 'util/NumberFormatter.kt', content: formatterKt },
   { name: 'SoundEffects.kt', path: 'util/SoundEffects.kt', content: soundKt },
   { name: 'Theme.kt', path: 'ui/theme/Theme.kt', content: themeKt },

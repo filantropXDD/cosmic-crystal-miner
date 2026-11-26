@@ -1,5 +1,6 @@
 package com.cosmicminer.app.model
 
+import com.cosmicminer.app.util.AppUpdateInfo
 import kotlin.math.floor
 import kotlin.math.pow
 import kotlin.math.sqrt
@@ -106,6 +107,9 @@ data class GameUiState(
     val isCometVisible: Boolean = false,
     val cometSeed: Long = 0L,
     val offlineReward: OfflineReward? = null,
+    val availableUpdate: AppUpdateInfo? = null,
+    val isCheckingUpdate: Boolean = false,
+    val updateStatusMessage: String? = null,
     val upgrades: List<UpgradeItemUi> = emptyList(),
     val achievements: List<AchievementItemUi> = emptyList(),
     val unclaimedAchievementsCount: Int = 0,

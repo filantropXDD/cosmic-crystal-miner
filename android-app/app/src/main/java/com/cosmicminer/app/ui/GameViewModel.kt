@@ -14,7 +14,11 @@ import com.cosmicminer.app.model.MinerRank
 import com.cosmicminer.app.model.OfflineReward
 import com.cosmicminer.app.model.UpgradeItemUi
 import com.cosmicminer.app.model.UpgradeType
+import com.cosmicminer.app.util.AppUpdateInfo
+import com.cosmicminer.app.util.BackupCodec
 import com.cosmicminer.app.util.SoundEffects
+import com.cosmicminer.app.util.UpdateCheckResult
+import com.cosmicminer.app.util.UpdateChecker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,9 +50,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var overchargeTicksRemaining = 0
     private var isCometVisible = false
     private var cometTicksRemaining = 0
-    private var nextCometDelayTicks = 350 // 35s after launch
+    private var nextCometDelayTicks = 350
     private var cometSeed = 0L
     private var offlineReward: OfflineReward? = null
+
+    private var availableUpdate: AppUpdateInfo? = null
+    private var isCheckingUpdate = false
+    private var updateStatusMessage: String? = null
 
     private val _uiState = MutableStateFlow(GameUiState())
     val uiState: StateFlow<GameUiState> = _uiState.asStateFlow()
@@ -56,19 +64,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             val saved = repository.gameDataFlow.first()
-            crystals = saved.crystals
-            runCrystalsEarned = saved.runCrystalsEarned
-            totalCrystalsEarned = saved.totalCrystalsEarned
-            experience = saved.experience
-            totalClicks = saved.totalClicks
-            criticalHits = saved.criticalHits
-            cometsCaught = saved.cometsCaught
-            darkMatter = saved.darkMatter
-            prestigeCount = saved.prestigeCount
-            upgradeLevels = saved.upgradeLevels.toMutableMap()
-            claimedAchievements = saved.claimedAchievements.toMutableSet()
-            isVibrationEnabled = saved.isVibrationEnabled
-            isSoundEnabled = saved.isSoundEnabled
+            applyPersistedData(saved)
 
             // Calculate offline income
             val nowMs = System.currentTimeMillis()
@@ -92,6 +88,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             isLoaded = true
             publishUiState()
             persistNow()
+
+            // Silent update check on startup
+            when (val result = UpdateChecker.checkForUpdate()) {
+                is UpdateCheckResult.UpdateAvailable -> {
+                    availableUpdate = result.info
+                    publishUiState()
+                }
+                else -> Unit
+            }
         }
 
         // Main game loop (10 ticks per second)
@@ -113,7 +118,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     needsPublish = true
                 }
 
-                // Overcharge countdown
                 if (overchargeTicksRemaining > 0) {
                     val prevSec = (overchargeTicksRemaining + 9) / 10
                     overchargeTicksRemaining--
@@ -123,19 +127,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                // Random cosmic comet event timer
                 if (isCometVisible) {
                     cometTicksRemaining--
                     if (cometTicksRemaining <= 0) {
                         isCometVisible = false
-                        nextCometDelayTicks = Random.nextInt(400, 600) // 40-60s
+                        nextCometDelayTicks = Random.nextInt(400, 600)
                         needsPublish = true
                     }
                 } else {
                     nextCometDelayTicks--
                     if (nextCometDelayTicks <= 0) {
                         isCometVisible = true
-                        cometTicksRemaining = 65 // 6.5s fly-by window
+                        cometTicksRemaining = 65
                         cometSeed = System.currentTimeMillis()
                         needsPublish = true
                     }
@@ -152,6 +155,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+    }
+
+    private fun applyPersistedData(saved: PersistedGameData) {
+        crystals = saved.crystals
+        runCrystalsEarned = saved.runCrystalsEarned
+        totalCrystalsEarned = saved.totalCrystalsEarned
+        experience = saved.experience
+        totalClicks = saved.totalClicks
+        criticalHits = saved.criticalHits
+        cometsCaught = saved.cometsCaught
+        darkMatter = saved.darkMatter
+        prestigeCount = saved.prestigeCount
+        upgradeLevels = saved.upgradeLevels.toMutableMap()
+        claimedAchievements = saved.claimedAchievements.toMutableSet()
+        isVibrationEnabled = saved.isVibrationEnabled
+        isSoundEnabled = saved.isSoundEnabled
     }
 
     data class ClickResult(
@@ -210,6 +229,54 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun dismissOfflineReward() {
         offlineReward = null
         publishUiState()
+    }
+
+    fun checkForUpdatesManual() {
+        if (isCheckingUpdate) return
+        isCheckingUpdate = true
+        updateStatusMessage = null
+        publishUiState()
+
+        viewModelScope.launch {
+            when (val result = UpdateChecker.checkForUpdate()) {
+                is UpdateCheckResult.UpdateAvailable -> {
+                    availableUpdate = result.info
+                    updateStatusMessage = "Найдена версия ${result.info.versionTag}"
+                }
+                is UpdateCheckResult.UpToDate -> {
+                    updateStatusMessage = "Установлена последняя версия (${UpdateChecker.CURRENT_VERSION})"
+                }
+                is UpdateCheckResult.Error -> {
+                    updateStatusMessage = result.message
+                }
+            }
+            isCheckingUpdate = false
+            publishUiState()
+        }
+    }
+
+    fun dismissUpdateDialog() {
+        availableUpdate = null
+        publishUiState()
+    }
+
+    fun clearUpdateStatus() {
+        updateStatusMessage = null
+        publishUiState()
+    }
+
+    fun exportBackupCode(): String {
+        return BackupCodec.encode(snapshotData())
+    }
+
+    fun importBackupCode(rawCode: String): Boolean {
+        val decoded = BackupCodec.decode(rawCode) ?: return false
+        applyPersistedData(decoded)
+        offlineReward = null
+        overchargeTicksRemaining = 0
+        publishUiState()
+        viewModelScope.launch { persistNow() }
+        return true
     }
 
     fun buyUpgrade(upgradeId: String) {
@@ -316,25 +383,27 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun persistNow() {
-        repository.saveProgress(
-            PersistedGameData(
-                crystals = crystals,
-                runCrystalsEarned = runCrystalsEarned,
-                totalCrystalsEarned = totalCrystalsEarned,
-                experience = experience,
-                totalClicks = totalClicks,
-                criticalHits = criticalHits,
-                cometsCaught = cometsCaught,
-                darkMatter = darkMatter,
-                prestigeCount = prestigeCount,
-                upgradeLevels = upgradeLevels.toMap(),
-                claimedAchievements = claimedAchievements.toSet(),
-                isVibrationEnabled = isVibrationEnabled,
-                isSoundEnabled = isSoundEnabled,
-                lastActiveTimestampMs = System.currentTimeMillis()
-            )
+    private fun snapshotData(): PersistedGameData {
+        return PersistedGameData(
+            crystals = crystals,
+            runCrystalsEarned = runCrystalsEarned,
+            totalCrystalsEarned = totalCrystalsEarned,
+            experience = experience,
+            totalClicks = totalClicks,
+            criticalHits = criticalHits,
+            cometsCaught = cometsCaught,
+            darkMatter = darkMatter,
+            prestigeCount = prestigeCount,
+            upgradeLevels = upgradeLevels.toMap(),
+            claimedAchievements = claimedAchievements.toSet(),
+            isVibrationEnabled = isVibrationEnabled,
+            isSoundEnabled = isSoundEnabled,
+            lastActiveTimestampMs = System.currentTimeMillis()
         )
+    }
+
+    private suspend fun persistNow() {
+        repository.saveProgress(snapshotData())
     }
 
     private fun resolveRank(): Pair<MinerRank, MinerRank?> {
@@ -444,6 +513,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             isCometVisible = isCometVisible,
             cometSeed = cometSeed,
             offlineReward = offlineReward,
+            availableUpdate = availableUpdate,
+            isCheckingUpdate = isCheckingUpdate,
+            updateStatusMessage = updateStatusMessage,
             upgrades = upgradeItems,
             achievements = achievementItems,
             unclaimedAchievementsCount = achievementItems.count { it.isUnlocked && !it.isClaimed },

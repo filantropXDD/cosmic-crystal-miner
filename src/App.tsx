@@ -426,6 +426,82 @@ export default function App() {
     });
   }, []);
 
+  const handleExportBackup = useCallback(() => {
+    const g = gameRef.current;
+    const payload = {
+      crystals: g.crystals,
+      runCrystalsEarned: g.runCrystalsEarned,
+      totalCrystalsEarned: g.totalCrystalsEarned,
+      experience: g.experience,
+      totalClicks: g.totalClicks,
+      criticalHits: g.criticalHits,
+      cometsCaught: g.cometsCaught,
+      darkMatter: g.darkMatter,
+      prestigeCount: g.prestigeCount,
+      isVibrationEnabled: g.isVibrationEnabled,
+      isSoundEnabled: g.isSoundEnabled,
+      upgrades: g.upgradeLevels,
+      achievements: g.claimedAchievements,
+    };
+    const bytes = new TextEncoder().encode(JSON.stringify(payload));
+    let bin = '';
+    bytes.forEach((b) => {
+      bin += String.fromCharCode(b);
+    });
+    return 'CCM1:' + btoa(bin);
+  }, []);
+
+  const handleImportBackup = useCallback((rawCode: string): boolean => {
+    try {
+      const trimmed = rawCode.trim();
+      if (!trimmed.startsWith('CCM1:')) return false;
+      const bin = atob(trimmed.slice(5));
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) {
+        bytes[i] = bin.charCodeAt(i);
+      }
+      const parsed = JSON.parse(new TextDecoder().decode(bytes)) as {
+        crystals?: number;
+        runCrystalsEarned?: number;
+        totalCrystalsEarned?: number;
+        experience?: number;
+        totalClicks?: number;
+        criticalHits?: number;
+        cometsCaught?: number;
+        darkMatter?: number;
+        prestigeCount?: number;
+        isVibrationEnabled?: boolean;
+        isSoundEnabled?: boolean;
+        upgrades?: Record<string, number>;
+        achievements?: string[];
+      };
+      const restored: PersistedGameState = {
+        ...INITIAL_STATE,
+        crystals: Math.max(0, Number(parsed.crystals ?? 0)),
+        runCrystalsEarned: Math.max(0, Number(parsed.runCrystalsEarned ?? 0)),
+        totalCrystalsEarned: Math.max(0, Number(parsed.totalCrystalsEarned ?? 0)),
+        experience: Math.max(0, Number(parsed.experience ?? 0)),
+        totalClicks: Math.max(0, Number(parsed.totalClicks ?? 0)),
+        criticalHits: Math.max(0, Number(parsed.criticalHits ?? 0)),
+        cometsCaught: Math.max(0, Number(parsed.cometsCaught ?? 0)),
+        darkMatter: Math.max(0, Number(parsed.darkMatter ?? 0)),
+        prestigeCount: Math.max(0, Number(parsed.prestigeCount ?? 0)),
+        isVibrationEnabled: parsed.isVibrationEnabled ?? true,
+        isSoundEnabled: parsed.isSoundEnabled ?? true,
+        upgradeLevels: parsed.upgrades ?? {},
+        claimedAchievements: Array.isArray(parsed.achievements) ? parsed.achievements : [],
+        lastActiveTimestampMs: Date.now(),
+      };
+      setGame(restored);
+      setOfflineReward(null);
+      setOverchargeSecondsLeft(0);
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(restored));
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#060814] via-[#0B1026] to-[#080B1A] text-slate-100 flex flex-col">
       {/* Compact Header */}
@@ -485,15 +561,13 @@ export default function App() {
 
             {/* Rank & XP Bar */}
             <div className="mt-5">
-              <div className="flex items-center justify-between gap-2 text-xs">
-                <span className="font-bold text-amber-300">
-                  Ранг {currentRank.level} · {currentRank.title}
-                </span>
-                <span className="font-mono-num text-slate-400">
-                  {nextRank
-                    ? `x${currentRank.multiplier} · ${formatCrystalCount(game.experience)} / ${formatCrystalCount(nextRank.xpThreshold)}`
-                    : `Макс. ранг · x${currentRank.multiplier}`}
-                </span>
+              <div className="text-xs font-bold text-amber-300 leading-snug">
+                Ранг {currentRank.level} · {currentRank.title}
+              </div>
+              <div className="mt-0.5 font-mono-num text-[11px] text-slate-400">
+                {nextRank
+                  ? `Множитель x${currentRank.multiplier} · ${formatCrystalCount(game.experience)} / ${formatCrystalCount(nextRank.xpThreshold)}`
+                  : `Макс. ранг · Множитель x${currentRank.multiplier}`}
               </div>
               <div className="mt-2 h-2 w-full rounded-full bg-slate-800/90 overflow-hidden">
                 <div
@@ -647,6 +721,8 @@ export default function App() {
           onToggleSound={(enabled) =>
             setGame((prev) => ({ ...prev, isSoundEnabled: enabled }))
           }
+          onExportBackup={handleExportBackup}
+          onImportBackup={handleImportBackup}
           onResetProgress={handleResetProgress}
           onClose={() => setShowSettings(false)}
         />

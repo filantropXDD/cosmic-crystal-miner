@@ -78,20 +78,18 @@ export const UpgradesPanel: React.FC<UpgradesPanelProps> = ({
         </div>
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-2">
-            <h3 className="text-sm font-semibold text-slate-100 truncate">
-              {upgrade.title}
-            </h3>
+          <h3 className="text-sm font-semibold text-slate-100 leading-snug">
+            {upgrade.title}
+          </h3>
+          <p className="text-xs text-slate-400 mt-0.5 leading-snug">
             <span
-              className={`text-xs font-mono-num font-bold shrink-0 ${
+              className={`font-mono-num font-bold ${
                 isClick ? 'text-cyan-300' : 'text-violet-300'
               }`}
             >
               Ур. {level}
-            </span>
-          </div>
-          <p className="text-xs text-slate-400 mt-0.5 truncate">
-            {upgrade.description} · {isClick ? 'Клик' : 'Авто'}
+            </span>{' '}
+            · {upgrade.description}
           </p>
         </div>
 

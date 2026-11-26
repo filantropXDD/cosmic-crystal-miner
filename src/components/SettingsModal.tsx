@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Volume2, Smartphone, Trash2, X } from 'lucide-react';
+import { Check, Copy, Download, Smartphone, Trash2, Volume2, X } from 'lucide-react';
 import { formatCrystalCount } from '../types/game';
 
 interface SettingsModalProps {
@@ -12,6 +12,8 @@ interface SettingsModalProps {
   totalCrystalsEarned: number;
   onToggleVibration: (enabled: boolean) => void;
   onToggleSound: (enabled: boolean) => void;
+  onExportBackup: () => string;
+  onImportBackup: (code: string) => boolean;
   onResetProgress: () => void;
   onClose: () => void;
 }
@@ -26,10 +28,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   totalCrystalsEarned,
   onToggleVibration,
   onToggleSound,
+  onExportBackup,
+  onImportBackup,
   onResetProgress,
   onClose,
 }) => {
   const [confirmReset, setConfirmReset] = useState(false);
+  const [showBackup, setShowBackup] = useState(false);
+  const [backupInput, setBackupInput] = useState('');
+  const [backupFeedback, setBackupFeedback] = useState<string | null>(null);
+  const [copiedBackup, setCopiedBackup] = useState(false);
+
+  const handleCopyBackup = async () => {
+    const code = onExportBackup();
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopiedBackup(true);
+      setBackupFeedback('Код сохранения скопирован в буфер');
+      window.setTimeout(() => setCopiedBackup(false), 1800);
+    } catch {
+      setBackupInput(code);
+      setBackupFeedback('Скопируйте код из поля ниже');
+    }
+  };
 
   return (
     <div
@@ -38,10 +59,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       aria-modal="true"
       aria-labelledby="settings-title"
     >
-      <div className="w-full max-w-md rounded-3xl bg-[#111732] border border-violet-400/25 p-6 shadow-2xl">
+      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-3xl bg-[#111732] border border-violet-400/25 p-6 shadow-2xl">
         <div className="flex items-center justify-between">
           <h2 id="settings-title" className="font-display text-xl font-bold text-slate-100">
-            Настройки · v1.1.0
+            Настройки · v1.1.1
           </h2>
           <button
             type="button"
@@ -53,7 +74,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
 
-        <div className="mt-5 space-y-4">
+        <div className="mt-5 space-y-3.5">
           <div className="flex items-center justify-between gap-4 p-3.5 rounded-2xl bg-[#182044]/70">
             <div className="flex items-center gap-3">
               <Smartphone className="w-5 h-5 text-violet-300 shrink-0" />
@@ -137,8 +158,79 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
+          <button
+            type="button"
+            onClick={() => {
+              setShowBackup((v) => !v);
+              setBackupFeedback(null);
+            }}
+            className="w-full min-h-[44px] flex items-center justify-between px-4 py-2.5 rounded-xl bg-[#182044]/75 hover:bg-[#1E2956] border border-slate-700/60 text-sm font-semibold text-violet-300 cursor-pointer transition-colors"
+          >
+            <span className="flex items-center gap-2.5">
+              <Copy className="w-4 h-4 shrink-0" />
+              <span>Перенос прогресса (код)</span>
+            </span>
+            <span className="text-xs text-slate-400">{showBackup ? 'Скрыть' : 'Открыть'}</span>
+          </button>
+
+          {showBackup && (
+            <div className="p-3.5 rounded-2xl bg-[#0B1024] border border-violet-400/30 space-y-2.5">
+              <button
+                type="button"
+                onClick={handleCopyBackup}
+                className="w-full min-h-[40px] flex items-center justify-center gap-2 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 text-xs font-bold cursor-pointer transition-colors"
+              >
+                {copiedBackup ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                <span>Скопировать код сохранения</span>
+              </button>
+              <input
+                type="text"
+                value={backupInput}
+                onChange={(e) => {
+                  setBackupInput(e.target.value);
+                  setBackupFeedback(null);
+                }}
+                placeholder="Вставьте код CCM1:... для восстановления"
+                className="w-full px-3 py-2 rounded-xl bg-[#121833] border border-slate-700 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-violet-400"
+              />
+              <button
+                type="button"
+                disabled={!backupInput.trim()}
+                onClick={() => {
+                  const ok = onImportBackup(backupInput);
+                  if (ok) {
+                    setBackupInput('');
+                    setBackupFeedback('Прогресс восстановлен!');
+                  } else {
+                    setBackupFeedback('Неверный код сохранения');
+                  }
+                }}
+                className="w-full min-h-[40px] flex items-center justify-center gap-2 rounded-xl bg-violet-500 hover:bg-violet-400 disabled:opacity-50 text-white text-xs font-bold cursor-pointer transition-colors"
+              >
+                <Download className="w-4 h-4" />
+                <span>Восстановить прогресс</span>
+              </button>
+              {backupFeedback && (
+                <p className="text-xs text-cyan-300 font-medium">{backupFeedback}</p>
+              )}
+            </div>
+          )}
+
           <a
-            href="https://github.com/filantropXDD/cosmic-crystal-miner-"
+            href="https://github.com/filantropXDD/cosmic-crystal-miner/releases/latest"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full min-h-[44px] flex items-center justify-between px-4 py-2.5 rounded-xl bg-[#182044]/75 hover:bg-[#1E2956] border border-slate-700/60 text-sm font-semibold text-amber-300 transition-colors"
+          >
+            <span className="flex items-center gap-2.5">
+              <Download className="w-4 h-4 shrink-0" />
+              <span>Скачать Android APK</span>
+            </span>
+            <span className="text-xs text-slate-400">Releases ↗</span>
+          </a>
+
+          <a
+            href="https://github.com/filantropXDD/cosmic-crystal-miner"
             target="_blank"
             rel="noopener noreferrer"
             className="w-full min-h-[44px] flex items-center justify-between px-4 py-2.5 rounded-xl bg-[#182044]/75 hover:bg-[#1E2956] border border-slate-700/60 text-sm font-semibold text-cyan-300 transition-colors"

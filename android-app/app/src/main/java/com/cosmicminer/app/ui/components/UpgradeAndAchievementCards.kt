@@ -126,36 +126,36 @@ private fun UpgradeCard(
             Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.definition.title,
+                    color = CosmicColors.TextPrimary,
+                    fontSize = 15.sp,
+                    lineHeight = 19.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2
+                )
+
+                Spacer(modifier = Modifier.height(3.dp))
+
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(
-                        text = item.definition.title,
-                        color = CosmicColors.TextPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
                     Text(
                         text = "Ур. ${item.level}",
                         color = accentColor,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
+                    Text(
+                        text = "· ${item.definition.description}",
+                        color = CosmicColors.TextSecondary,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                        maxLines = 2,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
-
-                Spacer(modifier = Modifier.height(2.dp))
-
-                Text(
-                    text = "${item.definition.description} · ${if (isClickType) "Клик" else "Авто"}",
-                    color = CosmicColors.TextSecondary,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
             }
 
             Spacer(modifier = Modifier.width(10.dp))

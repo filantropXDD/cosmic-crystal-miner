@@ -11,8 +11,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
@@ -29,6 +30,7 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -51,12 +54,20 @@ import com.cosmicminer.app.ui.components.PrestigeCollapsePanel
 import com.cosmicminer.app.ui.components.SettingsDialog
 import com.cosmicminer.app.ui.components.UpgradesList
 import com.cosmicminer.app.ui.theme.CosmicColors
+import com.cosmicminer.app.util.AppUpdateInfo
 import com.cosmicminer.app.util.NumberFormatter
 
 @Composable
 fun CosmicMinerScreen(viewModel: GameViewModel) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
+
+    state.availableUpdate?.let { update ->
+        AppUpdateDialog(
+            update = update,
+            onDismiss = viewModel::dismissUpdateDialog
+        )
+    }
 
     state.offlineReward?.let { reward ->
         OfflineRewardDialog(
@@ -73,10 +84,18 @@ fun CosmicMinerScreen(viewModel: GameViewModel) {
             criticalHits = state.criticalHits,
             cometsCaught = state.cometsCaught,
             darkMatter = state.darkMatter,
+            isCheckingUpdate = state.isCheckingUpdate,
+            updateStatusMessage = state.updateStatusMessage,
             onVibrationChange = viewModel::setVibrationEnabled,
             onSoundChange = viewModel::setSoundEnabled,
+            onCheckUpdates = viewModel::checkForUpdatesManual,
+            onExportBackup = viewModel::exportBackupCode,
+            onImportBackup = viewModel::importBackupCode,
             onResetConfirmed = viewModel::resetProgress,
-            onDismiss = { showSettings = false }
+            onDismiss = {
+                viewModel.clearUpdateStatus()
+                showSettings = false
+            }
         )
     }
 
@@ -170,15 +189,18 @@ fun CosmicMinerScreen(viewModel: GameViewModel) {
                                                     contentColor = Color.Black
                                                 ) {
                                                     Text(
-                                                        if (tab == BottomTab.PRESTIGE) "+${state.potentialDarkMatter}"
-                                                        else badgeCount.toString()
+                                                        text = if (tab == BottomTab.PRESTIGE) "+${state.potentialDarkMatter}"
+                                                        else badgeCount.toString(),
+                                                        fontSize = 10.sp
                                                     )
                                                 }
                                             }
                                         ) {
                                             Text(
                                                 text = tab.title,
-                                                fontSize = 13.sp,
+                                                fontSize = 12.sp,
+                                                maxLines = 1,
+                                                softWrap = false,
                                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                                 color = if (selected) CosmicColors.TextPrimary else CosmicColors.TextSecondary
                                             )
@@ -186,7 +208,9 @@ fun CosmicMinerScreen(viewModel: GameViewModel) {
                                     } else {
                                         Text(
                                             text = tab.title,
-                                            fontSize = 13.sp,
+                                            fontSize = 12.sp,
+                                            maxLines = 1,
+                                            softWrap = false,
                                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                             color = if (selected) CosmicColors.TextPrimary else CosmicColors.TextSecondary
                                         )
@@ -219,6 +243,69 @@ fun CosmicMinerScreen(viewModel: GameViewModel) {
             }
         }
     }
+}
+
+@Composable
+private fun AppUpdateDialog(
+    update: AppUpdateInfo,
+    onDismiss: () -> Unit
+) {
+    val uriHandler = LocalUriHandler.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CosmicColors.SurfaceCard,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Text(
+                text = "Доступно обновление ${update.versionTag}",
+                color = CosmicColors.TextPrimary,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Вы можете скачать новую версию прямо с GitHub — весь ваш прогресс сохранится.",
+                    color = CosmicColors.NeonCyan,
+                    fontSize = 13.sp
+                )
+                if (update.releaseNotes.isNotEmpty()) {
+                    Text(
+                        text = update.releaseNotes,
+                        color = CosmicColors.TextSecondary,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    try {
+                        uriHandler.openUri(update.apkDownloadUrl)
+                    } catch (_: Throwable) {
+                    }
+                    onDismiss()
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = CosmicColors.NeonCyan,
+                    contentColor = Color(0xFF04131D)
+                )
+            ) {
+                Text("Скачать APK", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Позже", color = CosmicColors.TextSecondary)
+            }
+        }
+    )
 }
 
 @Composable
@@ -341,28 +428,23 @@ private fun RankProgressSection(
             .fillMaxWidth()
             .padding(horizontal = 20.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Ранг $rankLevel · $rankTitle",
-                color = CosmicColors.NeonGold,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = if (nextThreshold != null) {
-                    "x$multiplier · ${NumberFormatter.format(experience)} / ${NumberFormatter.format(nextThreshold)}"
-                } else {
-                    "Макс. ранг · x$multiplier"
-                },
-                color = CosmicColors.TextSecondary,
-                fontSize = 11.sp
-            )
-        }
+        Text(
+            text = "Ранг $rankLevel · $rankTitle",
+            color = CosmicColors.NeonGold,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 2
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = if (nextThreshold != null) {
+                "Множитель x$multiplier · ${NumberFormatter.format(experience)} / ${NumberFormatter.format(nextThreshold)}"
+            } else {
+                "Макс. ранг · Множитель x$multiplier"
+            },
+            color = CosmicColors.TextSecondary,
+            fontSize = 11.sp
+        )
 
         Spacer(modifier = Modifier.height(6.dp))
 

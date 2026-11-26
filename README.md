@@ -6,7 +6,7 @@
 
 **Космическая игра-кликер для Android (Kotlin + Jetpack Compose, Material 3) с интерактивной веб-версией**
 
-![Version](https://img.shields.io/badge/Version-v1.1.0-8B5CF6?style=flat-square)
+![Version](https://img.shields.io/badge/Version-v1.1.1-8B5CF6?style=flat-square)
 ![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B-3DDC84?style=flat-square&logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.0.21-7F52FF?style=flat-square&logo=kotlin&logoColor=white)
 ![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white)
@@ -20,7 +20,9 @@
 
 **Cosmic Crystal Miner** — динамичный космический кликер в тёмном неоновом стиле. Добывайте кристаллы вручную, ловите критические удары `x3` и пролетающие кометы, прокачивайте буры и флот автономных дронов, запускайте «Коллапс» ради Тёмной материи и открывайте все 12 рангов и достижений.
 
-### Основные возможности (v1.1.0)
+### Основные возможности (v1.1.1)
+
+- **Прямые обновления без потери прогресса:** единый постоянный ключ подписи (`debug.keystore`), встроенная проверка новых релизов GitHub (**«Проверить обновления»**) и перенос прогресса по коду (`CCM1:...`) в настройках.
 
 - **Система престижа («Коллапс»):** сбросьте текущий прогресс захода ради редкой **Тёмной материи**, где каждая единица навсегда увеличивает весь доход на **+50%**.
 - **Офлайн-добыча:** флот и реакторы продолжают добывать кристаллы, пока игра закрыта (до 12 часов), с отчётом при следующем входе.
