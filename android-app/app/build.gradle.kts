@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -30,7 +32,7 @@ android {
                     val out = layout.projectDirectory.file(".gradle/signing/debug.keystore").asFile
                     out.parentFile.mkdirs()
                     val cleanBase64 = encodedKeystore.readText().replace(Regex("\\s+"), "")
-                    out.writeBytes(java.util.Base64.getDecoder().decode(cleanBase64))
+                    out.writeBytes(Base64.getDecoder().decode(cleanBase64))
                     out
                 }
                 else -> null
