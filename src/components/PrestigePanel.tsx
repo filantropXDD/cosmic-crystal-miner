@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import {
   PRESTIGE_BASE_THRESHOLD,
+  TALENTS,
+  TalentBranch,
   formatCrystalCount,
   formatRate,
+  getTalentCost,
 } from '../types/game';
 
 interface PrestigePanelProps {
@@ -12,8 +15,25 @@ interface PrestigePanelProps {
   potentialDarkMatter: number;
   runCrystalsEarned: number;
   nextDarkMatterThreshold: number;
+  talentLevels: Record<string, number>;
+  onBuyTalent: (talentId: string) => void;
   onPerformCollapse: () => void;
 }
+
+const BRANCH_META: { id: TalentBranch; title: string; colorClass: string; btnClass: string }[] = [
+  {
+    id: 'ACTIVE_CLICKER',
+    title: 'Активный кликер',
+    colorClass: 'text-amber-300',
+    btnClass: 'bg-amber-400 hover:bg-amber-300 text-slate-950',
+  },
+  {
+    id: 'TYCOON',
+    title: 'Магнат',
+    colorClass: 'text-violet-300',
+    btnClass: 'bg-violet-500 hover:bg-violet-400 text-white',
+  },
+];
 
 export const PrestigePanel: React.FC<PrestigePanelProps> = ({
   darkMatter,
@@ -22,6 +42,8 @@ export const PrestigePanel: React.FC<PrestigePanelProps> = ({
   potentialDarkMatter,
   runCrystalsEarned,
   nextDarkMatterThreshold,
+  talentLevels,
+  onBuyTalent,
   onPerformCollapse,
 }) => {
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -134,6 +156,64 @@ export const PrestigePanel: React.FC<PrestigePanelProps> = ({
             </div>
           </div>
         )}
+      </div>
+
+      {/* Talent Tree */}
+      <div className="p-4 rounded-2xl bg-[#121833]/90 border border-cyan-400/30 space-y-3">
+        <div>
+          <h3 className="text-sm font-bold text-cyan-300">
+            Дерево талантов (за Тёмную материю)
+          </h3>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Потраченная ТМ сохраняет постоянный бонус к доходу +50%.
+          </p>
+        </div>
+
+        {BRANCH_META.map((branch) => {
+          const branchTalents = TALENTS.filter((t) => t.branch === branch.id);
+          return (
+            <div key={branch.id} className="space-y-2 pt-1">
+              <div className={`text-xs font-bold ${branch.colorClass}`}>
+                Ветка: {branch.title}
+              </div>
+              {branchTalents.map((talent) => {
+                const level = talentLevels[talent.id] ?? 0;
+                const isMaxed = level >= talent.maxLevel;
+                const cost = getTalentCost(talent, level);
+                const canAfford = !isMaxed && darkMatter >= cost;
+
+                return (
+                  <div
+                    key={talent.id}
+                    className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-[#0B0F23] border border-slate-800/80"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-slate-100">
+                        {talent.title} ({level}/{talent.maxLevel})
+                      </div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        {talent.description}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={!canAfford}
+                      onClick={() => onBuyTalent(talent.id)}
+                      className={`min-h-[36px] min-w-[74px] px-3 rounded-lg font-mono-num text-xs font-bold shrink-0 transition-colors ${
+                        canAfford
+                          ? `${branch.btnClass} cursor-pointer`
+                          : 'bg-slate-800 text-slate-500 opacity-65 cursor-not-allowed'
+                      }`}
+                    >
+                      {isMaxed ? 'МАКС.' : `${cost} ТМ`}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

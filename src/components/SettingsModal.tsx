@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Check, Copy, Download, Smartphone, Trash2, Volume2, X } from 'lucide-react';
+import { BarChart3, Check, Copy, Download, Smartphone, Trash2, Volume2, X } from 'lucide-react';
 import { formatCrystalCount } from '../types/game';
 
 interface SettingsModalProps {
@@ -14,6 +14,7 @@ interface SettingsModalProps {
   onToggleSound: (enabled: boolean) => void;
   onExportBackup: () => string;
   onImportBackup: (code: string) => boolean;
+  onOpenStats: () => void;
   onResetProgress: () => void;
   onClose: () => void;
 }
@@ -30,6 +31,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onToggleSound,
   onExportBackup,
   onImportBackup,
+  onOpenStats,
   onResetProgress,
   onClose,
 }) => {
@@ -62,7 +64,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-3xl bg-[#111732] border border-violet-400/25 p-6 shadow-2xl">
         <div className="flex items-center justify-between">
           <h2 id="settings-title" className="font-display text-xl font-bold text-slate-100">
-            Настройки · v1.1.1
+            Настройки · v1.2.0
           </h2>
           <button
             type="button"
@@ -157,6 +159,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </span>
             </div>
           </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              onOpenStats();
+            }}
+            className="w-full min-h-[44px] flex items-center justify-between px-4 py-2.5 rounded-xl bg-[#182044]/75 hover:bg-[#1E2956] border border-slate-700/60 text-sm font-semibold text-cyan-300 cursor-pointer transition-colors"
+          >
+            <span className="flex items-center gap-2.5">
+              <BarChart3 className="w-4 h-4 shrink-0" />
+              <span>Статистика добытчика</span>
+            </span>
+            <span className="text-xs text-slate-400">Открыть</span>
+          </button>
 
           <button
             type="button"

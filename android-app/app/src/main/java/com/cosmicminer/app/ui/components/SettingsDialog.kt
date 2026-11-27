@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.SystemUpdate
@@ -71,6 +72,7 @@ fun SettingsDialog(
     onCheckUpdates: () -> Unit,
     onExportBackup: () -> String,
     onImportBackup: (String) -> Boolean,
+    onOpenStats: () -> Unit,
     onResetConfirmed: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -319,6 +321,36 @@ fun SettingsDialog(
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(CosmicColors.SurfaceElevated.copy(alpha = 0.7f))
+                        .clickable {
+                            onDismiss()
+                            onOpenStats()
+                        }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.BarChart,
+                        contentDescription = null,
+                        tint = CosmicColors.NeonCyan,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "Статистика добытчика",
+                        color = CosmicColors.TextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
 
                 // Check for direct GitHub Release updates
                 Row(

@@ -14,6 +14,9 @@ interface AchievementsPanelProps {
   criticalHits: number;
   cometsCaught: number;
   prestigeCount: number;
+  bossesDefeated: number;
+  feverActivations: number;
+  secretHeaderUnlocked: boolean;
   claimedAchievements: string[];
   onClaimAchievement: (achievementId: string) => void;
 }
@@ -26,6 +29,9 @@ export const AchievementsPanel: React.FC<AchievementsPanelProps> = ({
   criticalHits,
   cometsCaught,
   prestigeCount,
+  bossesDefeated,
+  feverActivations,
+  secretHeaderUnlocked,
   claimedAchievements,
   onClaimAchievement,
 }) => {
@@ -45,6 +51,12 @@ export const AchievementsPanel: React.FC<AchievementsPanelProps> = ({
         return cometsCaught;
       case 'PRESTIGE_COUNT':
         return prestigeCount;
+      case 'BOSSES_DEFEATED':
+        return bossesDefeated;
+      case 'FEVER_COUNT':
+        return feverActivations;
+      case 'SECRET_HEADER_TAP':
+        return secretHeaderUnlocked ? 1 : 0;
     }
   };
 
@@ -56,6 +68,7 @@ export const AchievementsPanel: React.FC<AchievementsPanelProps> = ({
         const isUnlocked = current >= item.targetValue;
         const isClaimed = claimedAchievements.includes(item.id);
         const isReady = isUnlocked && !isClaimed;
+        const hideSecret = Boolean(item.isSecret && !isUnlocked);
 
         return (
           <div
@@ -85,10 +98,12 @@ export const AchievementsPanel: React.FC<AchievementsPanelProps> = ({
 
               <div className="flex-1 min-w-0">
                 <h3 className="text-sm font-semibold text-slate-100 truncate">
-                  {item.title}
+                  {hideSecret ? 'Секретное достижение' : item.title}
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  {item.description}
+                  {hideSecret
+                    ? 'Откройте это достижение во время игры'
+                    : item.description}
                 </p>
               </div>
 

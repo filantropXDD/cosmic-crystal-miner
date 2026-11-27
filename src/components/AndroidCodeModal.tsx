@@ -5,6 +5,7 @@ import mainActivityKt from '../../android-app/app/src/main/java/com/cosmicminer/
 import cosmicMinerScreenKt from '../../android-app/app/src/main/java/com/cosmicminer/app/ui/CosmicMinerScreen.kt?raw';
 import gameViewModelKt from '../../android-app/app/src/main/java/com/cosmicminer/app/ui/GameViewModel.kt?raw';
 import crystalCanvasKt from '../../android-app/app/src/main/java/com/cosmicminer/app/ui/components/CrystalCanvas.kt?raw';
+import fleetAndSkinsKt from '../../android-app/app/src/main/java/com/cosmicminer/app/ui/components/FleetAndSkinsPanels.kt?raw';
 import cardsKt from '../../android-app/app/src/main/java/com/cosmicminer/app/ui/components/UpgradeAndAchievementCards.kt?raw';
 import settingsDialogKt from '../../android-app/app/src/main/java/com/cosmicminer/app/ui/components/SettingsDialog.kt?raw';
 import gameModelsKt from '../../android-app/app/src/main/java/com/cosmicminer/app/model/GameModels.kt?raw';
@@ -25,6 +26,7 @@ const ANDROID_FILES = [
   { name: 'CosmicMinerScreen.kt', path: 'ui/CosmicMinerScreen.kt', content: cosmicMinerScreenKt },
   { name: 'GameViewModel.kt', path: 'ui/GameViewModel.kt', content: gameViewModelKt },
   { name: 'CrystalCanvas.kt', path: 'ui/components/CrystalCanvas.kt', content: crystalCanvasKt },
+  { name: 'FleetAndSkinsPanels.kt', path: 'ui/components/FleetAndSkinsPanels.kt', content: fleetAndSkinsKt },
   { name: 'UpgradeAndAchievementCards.kt', path: 'ui/components/UpgradeAndAchievementCards.kt', content: cardsKt },
   { name: 'SettingsDialog.kt', path: 'ui/components/SettingsDialog.kt', content: settingsDialogKt },
   { name: 'GameModels.kt', path: 'model/GameModels.kt', content: gameModelsKt },
@@ -68,7 +70,7 @@ export const AndroidCodeModal: React.FC<AndroidCodeModalProps> = ({ onClose }) =
             <FileCode2 className="w-5 h-5 text-cyan-300 shrink-0" />
             <div className="min-w-0">
               <h2 id="android-code-title" className="font-display text-base font-bold text-slate-100 truncate">
-                Исходный код Android (Kotlin + Jetpack Compose) · v1.1.1
+                Исходный код Android (Kotlin + Jetpack Compose) · v1.2.0
               </h2>
               <p className="text-xs text-slate-400 truncate">
                 Папка проекта: android-app/ · Material 3 · DataStore · AudioTrack · ViewModel

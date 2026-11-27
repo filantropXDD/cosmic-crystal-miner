@@ -15,13 +15,25 @@ object SoundEffects {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private const val SAMPLE_RATE = 22050
 
-    fun playTap(isCritical: Boolean) {
+    fun playTap(isCritical: Boolean, isFever: Boolean = false) {
         scope.launch {
+            val pitchMult = if (isFever) 1.24 else 1.0
+            val durMult = if (isFever) 0.72 else 1.0
             if (isCritical) {
-                playChime(startFreq = 660.0, endFreq = 1320.0, durationMs = 170, volume = 0.25)
+                playChime(
+                    startFreq = 660.0 * pitchMult,
+                    endFreq = 1320.0 * pitchMult,
+                    durationMs = (160 * durMult).toInt(),
+                    volume = 0.24
+                )
             } else {
-                val randomPitch = 460.0 + (Math.random() * 70.0)
-                playChime(startFreq = randomPitch, endFreq = randomPitch * 1.32, durationMs = 65, volume = 0.14)
+                val randomPitch = (460.0 + (Math.random() * 70.0)) * pitchMult
+                playChime(
+                    startFreq = randomPitch,
+                    endFreq = randomPitch * 1.32,
+                    durationMs = (65 * durMult).toInt(),
+                    volume = 0.14
+                )
             }
         }
     }
@@ -38,6 +50,18 @@ object SoundEffects {
         }
     }
 
+    fun playFeverStart() {
+        scope.launch {
+            playChime(startFreq = 440.0, endFreq = 1480.0, durationMs = 260, volume = 0.27)
+        }
+    }
+
+    fun playBossDefeated() {
+        scope.launch {
+            playChime(startFreq = 330.0, endFreq = 990.0, durationMs = 300, volume = 0.28)
+        }
+    }
+
     fun playPrestige() {
         scope.launch {
             playChime(startFreq = 220.0, endFreq = 880.0, durationMs = 360, volume = 0.28)
@@ -51,7 +75,8 @@ object SoundEffects {
         volume: Double
     ) {
         try {
-            val numSamples = (SAMPLE_RATE * durationMs) / 1000
+            val clampedDuration = durationMs.coerceAtLeast(35)
+            val numSamples = (SAMPLE_RATE * clampedDuration) / 1000
             val samples = ShortArray(numSamples)
             var phase = 0.0
 
@@ -94,7 +119,7 @@ object SoundEffects {
 
             track.write(samples, 0, samples.size)
             track.play()
-            Thread.sleep(durationMs.toLong() + 40L)
+            Thread.sleep(clampedDuration.toLong() + 40L)
             track.stop()
             track.release()
         } catch (_: Throwable) {

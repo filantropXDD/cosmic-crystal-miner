@@ -14,18 +14,29 @@ import {
   Network,
 } from 'lucide-react';
 import {
+  BuyQuantity,
   MAX_UPGRADE_LEVEL,
   UPGRADES,
   UpgradeDefinition,
+  calculateUpgradePurchase,
   formatCrystalCount,
-  getUpgradeCost,
 } from '../types/game';
 
 interface UpgradesPanelProps {
   crystals: number;
   upgradeLevels: Record<string, number>;
+  discountFraction?: number;
+  buyQuantity: BuyQuantity;
+  onBuyQuantityChange: (quantity: BuyQuantity) => void;
   onBuyUpgrade: (upgradeId: string) => void;
 }
+
+const BUY_OPTIONS: { id: BuyQuantity; label: string }[] = [
+  { id: 'X1', label: 'x1' },
+  { id: 'X10', label: 'x10' },
+  { id: 'X100', label: 'x100' },
+  { id: 'MAX', label: 'MAX' },
+];
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   laser_pickaxe: MousePointerClick,
@@ -45,6 +56,9 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
 export const UpgradesPanel: React.FC<UpgradesPanelProps> = ({
   crystals,
   upgradeLevels,
+  discountFraction = 0,
+  buyQuantity,
+  onBuyQuantityChange,
   onBuyUpgrade,
 }) => {
   const clickUpgrades = UPGRADES.filter((u) => u.type === 'CLICK_POWER');
@@ -53,8 +67,14 @@ export const UpgradesPanel: React.FC<UpgradesPanelProps> = ({
   const renderCard = (upgrade: UpgradeDefinition) => {
     const level = upgradeLevels[upgrade.id] ?? 0;
     const isMaxLevel = level >= MAX_UPGRADE_LEVEL;
-    const cost = getUpgradeCost(upgrade, level);
-    const canAfford = !isMaxLevel && crystals >= cost;
+    const plan = calculateUpgradePurchase(
+      upgrade,
+      level,
+      crystals,
+      discountFraction,
+      buyQuantity
+    );
+    const canAfford = !isMaxLevel && plan.canAfford;
     const isClick = upgrade.type === 'CLICK_POWER';
     const Icon = ICON_MAP[upgrade.id] ?? Zap;
 
@@ -99,7 +119,7 @@ export const UpgradesPanel: React.FC<UpgradesPanelProps> = ({
           type="button"
           onClick={() => onBuyUpgrade(upgrade.id)}
           disabled={!canAfford}
-          className={`min-h-[44px] min-w-[84px] px-3.5 py-2 rounded-xl font-mono-num text-xs font-bold whitespace-nowrap shrink-0 transition-all ${
+          className={`min-h-[44px] min-w-[88px] px-3.5 py-1.5 rounded-xl font-mono-num text-xs font-bold whitespace-nowrap shrink-0 flex flex-col items-center justify-center leading-tight transition-all ${
             canAfford
               ? isClick
                 ? 'bg-cyan-400 text-slate-950 hover:bg-cyan-300 active:scale-95 shadow-sm shadow-cyan-500/20 cursor-pointer'
@@ -109,7 +129,16 @@ export const UpgradesPanel: React.FC<UpgradesPanelProps> = ({
               : 'bg-slate-800/70 text-slate-500 opacity-60 cursor-not-allowed'
           }`}
         >
-          {isMaxLevel ? 'МАКС.' : formatCrystalCount(cost)}
+          {isMaxLevel ? (
+            <span>МАКС.</span>
+          ) : (
+            <>
+              <span>{formatCrystalCount(plan.totalCost)}</span>
+              {plan.levelsToBuy > 1 && (
+                <span className="text-[10px] opacity-85">+{plan.levelsToBuy}</span>
+              )}
+            </>
+          )}
         </button>
       </div>
     );
@@ -117,6 +146,29 @@ export const UpgradesPanel: React.FC<UpgradesPanelProps> = ({
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 px-1">
+        <span className="text-xs font-medium text-slate-400">Количество покупки</span>
+        <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#121833] border border-slate-800">
+          {BUY_OPTIONS.map((opt) => {
+            const selected = opt.id === buyQuantity;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => onBuyQuantityChange(opt.id)}
+                className={`px-3 py-1 rounded-lg text-xs font-mono-num font-bold cursor-pointer transition-colors ${
+                  selected
+                    ? 'bg-cyan-400 text-slate-950'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="space-y-2.5">
         <h2 className="text-xs font-semibold text-cyan-300/90 px-1">
           Усилители клика

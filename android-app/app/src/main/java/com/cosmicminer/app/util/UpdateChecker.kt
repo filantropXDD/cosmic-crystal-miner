@@ -20,7 +20,7 @@ sealed class UpdateCheckResult {
 }
 
 object UpdateChecker {
-    const val CURRENT_VERSION = "1.1.1"
+    const val CURRENT_VERSION = "1.2.0"
     private const val LATEST_RELEASE_API =
         "https://api.github.com/repos/filantropXDD/cosmic-crystal-miner/releases/latest"
     private const val RELEASES_PAGE =

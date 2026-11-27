@@ -16,7 +16,7 @@ function getAudioContext(): AudioContext | null {
   return audioCtx;
 }
 
-export function playCrystalTapSound(isCritical: boolean): void {
+export function playCrystalTapSound(isCritical: boolean, isFever = false): void {
   try {
     const ctx = getAudioContext();
     if (!ctx) return;
@@ -24,24 +24,25 @@ export function playCrystalTapSound(isCritical: boolean): void {
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
+    const pitchBoost = isFever ? 1.24 : 1;
 
     if (isCritical) {
       osc.type = 'triangle';
-      osc.frequency.setValueAtTime(660, now);
-      osc.frequency.exponentialRampToValueAtTime(1320, now + 0.14);
-      gain.gain.setValueAtTime(0.12, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+      osc.frequency.setValueAtTime(660 * pitchBoost, now);
+      osc.frequency.exponentialRampToValueAtTime(1320 * pitchBoost, now + 0.12);
+      gain.gain.setValueAtTime(0.11, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + (isFever ? 0.17 : 0.22));
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start(now);
-      osc.stop(now + 0.24);
+      osc.stop(now + (isFever ? 0.18 : 0.23));
     } else {
       osc.type = 'sine';
-      const pitch = 460 + Math.random() * 70;
+      const pitch = (460 + Math.random() * 70) * pitchBoost;
       osc.frequency.setValueAtTime(pitch, now);
-      osc.frequency.exponentialRampToValueAtTime(pitch * 1.32, now + 0.07);
+      osc.frequency.exponentialRampToValueAtTime(pitch * 1.32, now + 0.065);
       gain.gain.setValueAtTime(0.06, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.085);
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start(now);
@@ -89,6 +90,48 @@ export function playCometSound(): void {
     gain.connect(ctx.destination);
     osc.start(now);
     osc.stop(now + 0.25);
+  } catch {
+    // Audio playback is optional
+  }
+}
+
+export function playFeverStartSound(): void {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(440, now);
+    osc.frequency.exponentialRampToValueAtTime(1180, now + 0.26);
+    gain.gain.setValueAtTime(0.12, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.31);
+  } catch {
+    // Audio playback is optional
+  }
+}
+
+export function playBossDefeatedSound(): void {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(340, now);
+    osc.frequency.exponentialRampToValueAtTime(1020, now + 0.32);
+    gain.gain.setValueAtTime(0.1, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.36);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.37);
   } catch {
     // Audio playback is optional
   }

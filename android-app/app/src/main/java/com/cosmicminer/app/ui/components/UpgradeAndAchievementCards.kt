@@ -2,6 +2,7 @@ package com.cosmicminer.app.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -57,7 +58,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cosmicminer.app.model.AchievementItemUi
+import com.cosmicminer.app.model.BuyQuantity
 import com.cosmicminer.app.model.GameCatalog
+import com.cosmicminer.app.model.TalentBranch
+import com.cosmicminer.app.model.TalentItemUi
 import com.cosmicminer.app.model.UpgradeItemUi
 import com.cosmicminer.app.model.UpgradeType
 import com.cosmicminer.app.ui.theme.CosmicColors
@@ -66,19 +70,66 @@ import com.cosmicminer.app.util.NumberFormatter
 @Composable
 fun UpgradesList(
     upgrades: List<UpgradeItemUi>,
+    buyQuantity: BuyQuantity,
+    onBuyQuantityChange: (BuyQuantity) -> Unit,
     onBuyUpgrade: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        items(upgrades, key = { it.definition.id }) { item ->
-            UpgradeCard(
-                item = item,
-                onBuy = { onBuyUpgrade(item.definition.id) }
+    Column(modifier = modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Количество покупки",
+                color = CosmicColors.TextSecondary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
             )
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(CosmicColors.SurfaceElevated)
+                    .padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                BuyQuantity.entries.forEach { qty ->
+                    val selected = qty == buyQuantity
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (selected) CosmicColors.NeonCyan else Color.Transparent)
+                            .clickable { onBuyQuantityChange(qty) }
+                            .padding(horizontal = 9.dp, vertical = 5.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = qty.label,
+                            color = if (selected) Color(0xFF04131D) else CosmicColors.TextSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            items(upgrades, key = { it.definition.id }) { item ->
+                UpgradeCard(
+                    item = item,
+                    onBuy = { onBuyUpgrade(item.definition.id) }
+                )
+            }
         }
     }
 }
@@ -165,7 +216,7 @@ private fun UpgradeCard(
                 onClick = onBuy,
                 enabled = isBuyable,
                 shape = RoundedCornerShape(12.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (isClickType) CosmicColors.NeonCyan else CosmicColors.NeonPurple,
                     contentColor = if (isClickType) Color(0xFF04131D) else Color.White,
@@ -174,11 +225,28 @@ private fun UpgradeCard(
                 ),
                 modifier = Modifier.alpha(if (isBuyable || isMaxLevel) 1f else 0.6f)
             ) {
-                Text(
-                    text = if (isMaxLevel) "МАКС." else NumberFormatter.format(item.nextCost),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                if (isMaxLevel) {
+                    Text(
+                        text = "МАКС.",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = NumberFormatter.format(item.nextCost),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (item.levelsToBuy > 1) {
+                            Text(
+                                text = "+${item.levelsToBuy}",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -254,14 +322,15 @@ private fun AchievementCard(
                 Spacer(modifier = Modifier.width(12.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
+                    val hideSecret = item.definition.isSecret && !item.isUnlocked
                     Text(
-                        text = item.definition.title,
+                        text = if (hideSecret) "Секретное достижение" else item.definition.title,
                         color = CosmicColors.TextPrimary,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = item.definition.description,
+                        text = if (hideSecret) "Откройте это достижение во время игры" else item.definition.description,
                         color = CosmicColors.TextSecondary,
                         fontSize = 12.sp
                     )
@@ -340,6 +409,8 @@ fun PrestigeCollapsePanel(
     potentialDarkMatter: Long,
     runCrystalsEarned: Double,
     nextDarkMatterThreshold: Double,
+    talents: List<TalentItemUi>,
+    onBuyTalent: (String) -> Unit,
     onCollapseConfirmed: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -506,6 +577,88 @@ fun PrestigeCollapsePanel(
                         else "Недостаточно кристаллов",
                         fontWeight = FontWeight.Bold
                     )
+                }
+            }
+        }
+
+        // Talent Tree (Dark Matter)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = CosmicColors.SurfaceCard),
+            border = BorderStroke(1.dp, CosmicColors.NeonCyan.copy(alpha = 0.35f))
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "Дерево талантов (за Тёмную материю)",
+                    color = CosmicColors.NeonCyan,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Потраченная ТМ сохраняет постоянный бонус к доходу +50%.",
+                    color = CosmicColors.TextSecondary,
+                    fontSize = 12.sp
+                )
+
+                TalentBranch.entries.forEach { branch ->
+                    val branchTalents = talents.filter { it.definition.branch == branch }
+                    val branchColor = if (branch == TalentBranch.ACTIVE_CLICKER) CosmicColors.NeonGold else CosmicColors.NeonPurpleBright
+                    Text(
+                        text = "Ветка: ${branch.title}",
+                        color = branchColor,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+
+                    branchTalents.forEach { talent ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(CosmicColors.SurfaceElevated.copy(alpha = 0.6f))
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "${talent.definition.title} (${talent.level}/${talent.definition.maxLevel})",
+                                    color = CosmicColors.TextPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = talent.definition.description,
+                                    color = CosmicColors.TextSecondary,
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = { onBuyTalent(talent.definition.id) },
+                                enabled = talent.canAfford,
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = branchColor,
+                                    contentColor = if (branch == TalentBranch.ACTIVE_CLICKER) Color(0xFF1F1600) else Color.White,
+                                    disabledContainerColor = CosmicColors.SurfaceCard,
+                                    disabledContentColor = CosmicColors.TextSecondary.copy(alpha = 0.6f)
+                                )
+                            ) {
+                                Text(
+                                    text = if (talent.isMaxed) "МАКС." else "${talent.nextCostDm} ТМ",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

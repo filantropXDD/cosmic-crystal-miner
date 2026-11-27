@@ -7,15 +7,24 @@ import com.cosmicminer.app.data.GamePreferencesRepository
 import com.cosmicminer.app.data.PersistedGameData
 import com.cosmicminer.app.model.AchievementItemUi
 import com.cosmicminer.app.model.AchievementMetric
+import com.cosmicminer.app.model.BossUiState
 import com.cosmicminer.app.model.BottomTab
+import com.cosmicminer.app.model.BuyQuantity
+import com.cosmicminer.app.model.CrystalSkin
+import com.cosmicminer.app.model.DailyQuestItemUi
+import com.cosmicminer.app.model.DailyQuestType
+import com.cosmicminer.app.model.ExpeditionUiState
 import com.cosmicminer.app.model.GameCatalog
 import com.cosmicminer.app.model.GameUiState
 import com.cosmicminer.app.model.MinerRank
 import com.cosmicminer.app.model.OfflineReward
+import com.cosmicminer.app.model.SpaceLocation
+import com.cosmicminer.app.model.TalentItemUi
 import com.cosmicminer.app.model.UpgradeItemUi
 import com.cosmicminer.app.model.UpgradeType
 import com.cosmicminer.app.util.AppUpdateInfo
 import com.cosmicminer.app.util.BackupCodec
+import com.cosmicminer.app.util.NumberFormatter
 import com.cosmicminer.app.util.SoundEffects
 import com.cosmicminer.app.util.UpdateCheckResult
 import com.cosmicminer.app.util.UpdateChecker
@@ -25,6 +34,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.util.Calendar
 import kotlin.random.Random
 
 class GameViewModel(application: Application) : AndroidViewModel(application) {
@@ -38,11 +49,32 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var totalClicks = 0L
     private var criticalHits = 0L
     private var cometsCaught = 0L
+    private var bossesDefeated = 0L
+    private var feverActivations = 0L
+    private var bestCps = 0
+    private var playTimeSeconds = 0L
     private var darkMatter = 0L
+    private var spentDarkMatter = 0L
     private var prestigeCount = 0
     private var upgradeLevels = mutableMapOf<String, Int>()
+    private var talentLevels = mutableMapOf<String, Int>()
     private var claimedAchievements = mutableSetOf<String>()
+    private var secretHeaderUnlocked = false
+    private var headerTapCounter = 0
+    private var selectedSkin = CrystalSkin.CLASSIC
+    private var selectedLocation = SpaceLocation.NEBULA
+    private var activeExpeditionId: String? = null
+    private var expeditionEndMs = 0L
+    private var expeditionLastMessage: String? = null
+
+    private var dailyDateKey = ""
+    private var dailyClicks = 0
+    private var dailyUpgrades = 0
+    private var dailyFever = 0
+    private var dailyClaimedIds = mutableSetOf<String>()
+
     private var selectedTab = BottomTab.UPGRADES
+    private var selectedBuyQuantity = BuyQuantity.X1
     private var isVibrationEnabled = true
     private var isSoundEnabled = true
     private var isLoaded = false
@@ -50,10 +82,28 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var overchargeTicksRemaining = 0
     private var isCometVisible = false
     private var cometTicksRemaining = 0
-    private var nextCometDelayTicks = 350
+    private var nextCometDelayTicks = 320
     private var cometSeed = 0L
-    private var offlineReward: OfflineReward? = null
 
+    // Fever / Combo mode
+    private var feverMeter = 0f
+    private var feverTicksRemaining = 0
+    private var comboCount = 0
+    private var ticksSinceLastClick = 0
+
+    // Boss battle
+    private var isBossActive = false
+    private var bossName = "Бронированный Левиафан"
+    private var bossCurrentHp = 0.0
+    private var bossMaxHp = 1.0
+    private var bossTicksRemaining = 0
+    private var bossCooldownTicks = 0
+    private var bossAutoSpawnTicks = GameCatalog.BOSS_AUTO_SPAWN_SEC * 10
+    private var bossLastResult: String? = null
+
+    private val recentClickTimestamps = ArrayDeque<Long>()
+    private var secretToast: String? = null
+    private var offlineReward: OfflineReward? = null
     private var availableUpdate: AppUpdateInfo? = null
     private var isCheckingUpdate = false
     private var updateStatusMessage: String? = null
@@ -65,13 +115,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val saved = repository.gameDataFlow.first()
             applyPersistedData(saved)
+            syncDailyQuestDate()
 
-            // Calculate offline income
+            // Calculate offline income with cryo_vault talent bonus
             val nowMs = System.currentTimeMillis()
             if (saved.lastActiveTimestampMs > 0L) {
                 val elapsedSec = ((nowMs - saved.lastActiveTimestampMs) / 1000L)
                     .coerceIn(0L, GameCatalog.MAX_OFFLINE_SECONDS)
-                val passive = calculatePassivePerSecond()
+                val offlineBonusMult = 1.0 + (talentLevels["cryo_vault"] ?: 0) * 0.35
+                val passive = calculatePassivePerSecond() * offlineBonusMult
                 if (elapsedSec >= 10L && passive > 0.0) {
                     val earned = passive * elapsedSec.toDouble()
                     crystals += earned
@@ -89,7 +141,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             publishUiState()
             persistNow()
 
-            // Silent update check on startup
             when (val result = UpdateChecker.checkForUpdate()) {
                 is UpdateCheckResult.UpdateAvailable -> {
                     availableUpdate = result.info
@@ -102,12 +153,23 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         // Main game loop (10 ticks per second)
         viewModelScope.launch {
             var saveTickCounter = 0
+            var secondTickCounter = 0
             while (true) {
                 delay(100L)
                 if (!isLoaded) continue
 
                 var needsPublish = false
+                ticksSinceLastClick++
+                secondTickCounter++
 
+                // Prune CPS window every tick
+                val nowMs = System.currentTimeMillis()
+                while (recentClickTimestamps.isNotEmpty() && nowMs - recentClickTimestamps.first() > 1000L) {
+                    recentClickTimestamps.removeFirst()
+                    needsPublish = true
+                }
+
+                // Passive income & boss passive damage
                 val passive = calculatePassivePerSecond()
                 if (passive > 0.0) {
                     val delta = passive / 10.0
@@ -115,9 +177,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     runCrystalsEarned += delta
                     totalCrystalsEarned += delta
                     experience += delta
+                    if (isBossActive) {
+                        damageBoss(delta)
+                    }
                     needsPublish = true
                 }
 
+                // Overcharge countdown
                 if (overchargeTicksRemaining > 0) {
                     val prevSec = (overchargeTicksRemaining + 9) / 10
                     overchargeTicksRemaining--
@@ -127,11 +193,30 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
+                // Fever countdown or heat decay
+                if (feverTicksRemaining > 0) {
+                    val prevSec = (feverTicksRemaining + 9) / 10
+                    feverTicksRemaining--
+                    feverMeter = (feverTicksRemaining / (feverDurationSec() * 10f)).coerceIn(0f, 1f)
+                    val newSec = (feverTicksRemaining + 9) / 10
+                    if (prevSec != newSec || feverTicksRemaining == 0) {
+                        if (feverTicksRemaining == 0) {
+                            comboCount = 0
+                        }
+                        needsPublish = true
+                    }
+                } else if (feverMeter > 0f && ticksSinceLastClick > 16) {
+                    feverMeter = (feverMeter - 0.045f).coerceAtLeast(0f)
+                    if (feverMeter == 0f) comboCount = 0
+                    needsPublish = true
+                }
+
+                // Comet lifecycle
                 if (isCometVisible) {
                     cometTicksRemaining--
                     if (cometTicksRemaining <= 0) {
                         isCometVisible = false
-                        nextCometDelayTicks = Random.nextInt(400, 600)
+                        nextCometDelayTicks = nextCometDelay()
                         needsPublish = true
                     }
                 } else {
@@ -139,9 +224,48 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     if (nextCometDelayTicks <= 0) {
                         isCometVisible = true
                         cometTicksRemaining = 65
-                        cometSeed = System.currentTimeMillis()
+                        cometSeed = nowMs
                         needsPublish = true
                     }
+                }
+
+                // Boss battle timer or auto-spawn
+                if (isBossActive) {
+                    val prevSec = (bossTicksRemaining + 9) / 10
+                    bossTicksRemaining--
+                    val newSec = (bossTicksRemaining + 9) / 10
+                    if (bossTicksRemaining <= 0) {
+                        isBossActive = false
+                        bossCooldownTicks = GameCatalog.BOSS_MANUAL_COOLDOWN_SEC * 10
+                        bossAutoSpawnTicks = GameCatalog.BOSS_AUTO_SPAWN_SEC * 10
+                        bossLastResult = "Босс улетел в гиперпространство"
+                        needsPublish = true
+                    } else if (prevSec != newSec) {
+                        needsPublish = true
+                    }
+                } else {
+                    if (bossCooldownTicks > 0) {
+                        val prevSec = (bossCooldownTicks + 9) / 10
+                        bossCooldownTicks--
+                        val newSec = (bossCooldownTicks + 9) / 10
+                        if (prevSec != newSec || bossCooldownTicks == 0) needsPublish = true
+                    }
+                    bossAutoSpawnTicks--
+                    if (bossAutoSpawnTicks <= 0) {
+                        spawnBossInternal()
+                        needsPublish = true
+                    }
+                }
+
+                // 1-second timer updates (playTime, expedition countdown, midnight/day check)
+                if (secondTickCounter >= 10) {
+                    secondTickCounter = 0
+                    playTimeSeconds += 1L
+                    syncDailyQuestDate()
+                    if (activeExpeditionId != null) {
+                        needsPublish = true
+                    }
+                    needsPublish = true
                 }
 
                 if (needsPublish) {
@@ -149,7 +273,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 saveTickCounter++
-                if (saveTickCounter >= 20) {
+                if (saveTickCounter >= 25) {
                     saveTickCounter = 0
                     persistNow()
                 }
@@ -165,22 +289,78 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         totalClicks = saved.totalClicks
         criticalHits = saved.criticalHits
         cometsCaught = saved.cometsCaught
+        bossesDefeated = saved.bossesDefeated
+        feverActivations = saved.feverActivations
+        bestCps = saved.bestCps
+        playTimeSeconds = saved.playTimeSeconds
         darkMatter = saved.darkMatter
+        spentDarkMatter = saved.spentDarkMatter
         prestigeCount = saved.prestigeCount
         upgradeLevels = saved.upgradeLevels.toMutableMap()
+        talentLevels = saved.talentLevels.toMutableMap()
         claimedAchievements = saved.claimedAchievements.toMutableSet()
+        secretHeaderUnlocked = saved.secretHeaderUnlocked
+        selectedSkin = CrystalSkin.fromId(saved.selectedSkinId)
+        selectedLocation = SpaceLocation.fromId(saved.selectedLocationId)
+        activeExpeditionId = saved.activeExpeditionId
+        expeditionEndMs = saved.expeditionEndMs
+        dailyDateKey = saved.dailyDateKey
+        dailyClicks = saved.dailyClicks
+        dailyUpgrades = saved.dailyUpgrades
+        dailyFever = saved.dailyFever
+        dailyClaimedIds = saved.dailyClaimedIds.toMutableSet()
         isVibrationEnabled = saved.isVibrationEnabled
         isSoundEnabled = saved.isSoundEnabled
     }
 
+    private fun syncDailyQuestDate() {
+        val today = LocalDate.now().toString()
+        if (dailyDateKey != today) {
+            dailyDateKey = today
+            dailyClicks = 0
+            dailyUpgrades = 0
+            dailyFever = 0
+            dailyClaimedIds.clear()
+        }
+    }
+
     data class ClickResult(
         val gained: Double,
-        val isCritical: Boolean
+        val isCritical: Boolean,
+        val isFever: Boolean
     )
 
     fun onCrystalClick(): ClickResult {
+        val nowMs = System.currentTimeMillis()
+        recentClickTimestamps.addLast(nowMs)
+        while (recentClickTimestamps.isNotEmpty() && nowMs - recentClickTimestamps.first() > 1000L) {
+            recentClickTimestamps.removeFirst()
+        }
+        val cps = recentClickTimestamps.size
+        if (cps > bestCps) bestCps = cps
+
+        ticksSinceLastClick = 0
+        comboCount += 1
+
+        // Fever fill & trigger
+        val isFeverNow = feverTicksRemaining > 0
+        if (!isFeverNow) {
+            val heatPerClick = 0.045f * (1f + (talentLevels["fever_surge"] ?: 0) * 0.25f)
+            feverMeter = (feverMeter + heatPerClick).coerceAtMost(1f)
+            if (feverMeter >= 1f) {
+                feverTicksRemaining = feverDurationSec() * 10
+                feverActivations += 1L
+                dailyFever += 1
+                if (isSoundEnabled) {
+                    SoundEffects.playFeverStart()
+                }
+            }
+        }
+
+        val activeFever = feverTicksRemaining > 0
+        val critChance = 0.10f + (talentLevels["crit_edge"] ?: 0) * 0.03f
+        val isCrit = activeFever || Random.nextFloat() < critChance
         val baseClick = calculateClickPower()
-        val isCrit = Random.nextFloat() < 0.10f
         val gained = if (isCrit) baseClick * 3.0 else baseClick
 
         crystals += gained
@@ -188,30 +368,37 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         totalCrystalsEarned += gained
         experience += gained
         totalClicks += 1L
+        dailyClicks += 1
         if (isCrit) {
             criticalHits += 1L
         }
 
+        if (isBossActive) {
+            damageBoss(gained)
+        }
+
         if (isSoundEnabled) {
-            SoundEffects.playTap(isCrit)
+            SoundEffects.playTap(isCritical = isCrit, isFever = activeFever)
         }
 
         publishUiState()
-        return ClickResult(gained = gained, isCritical = isCrit)
+        return ClickResult(gained = gained, isCritical = isCrit, isFever = activeFever)
     }
 
     fun catchComet(): Double {
         if (!isCometVisible) return 0.0
         isCometVisible = false
-        nextCometDelayTicks = Random.nextInt(400, 600)
+        nextCometDelayTicks = nextCometDelay()
         cometsCaught += 1L
         overchargeTicksRemaining = GameCatalog.OVERCHARGE_DURATION_SEC * 10
 
+        val cometTalentMult = 1.0 + (talentLevels["comet_magnet"] ?: 0) * 0.5
         val bonus = maxOf(
             calculateClickPowerWithoutOvercharge() * 25.0,
             calculatePassivePerSecond() * 20.0,
             100.0
-        )
+        ) * cometTalentMult
+
         crystals += bonus
         runCrystalsEarned += bonus
         totalCrystalsEarned += bonus
@@ -224,6 +411,182 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         publishUiState()
         viewModelScope.launch { persistNow() }
         return bonus
+    }
+
+    fun summonBoss() {
+        if (isBossActive || bossCooldownTicks > 0) return
+        spawnBossInternal()
+        publishUiState()
+    }
+
+    private fun spawnBossInternal() {
+        val bossNames = listOf(
+            "Бронированный Левиафан",
+            "Кварцевый Дредноут",
+            "Титан Пояса Койпера",
+            "Осколок Сверхновой"
+        )
+        bossName = bossNames.random()
+        val expectedDps = calculateClickPowerWithoutOvercharge() * 6.5 + calculatePassivePerSecond()
+        bossMaxHp = maxOf(600.0, expectedDps * 18.0)
+        bossCurrentHp = bossMaxHp
+        isBossActive = true
+        bossTicksRemaining = GameCatalog.BOSS_DURATION_SEC * 10
+        bossLastResult = null
+    }
+
+    private fun damageBoss(damage: Double) {
+        if (!isBossActive) return
+        bossCurrentHp = (bossCurrentHp - damage).coerceAtLeast(0.0)
+        if (bossCurrentHp <= 0.0) {
+            isBossActive = false
+            bossesDefeated += 1L
+            bossCooldownTicks = GameCatalog.BOSS_MANUAL_COOLDOWN_SEC * 10
+            bossAutoSpawnTicks = GameCatalog.BOSS_AUTO_SPAWN_SEC * 10
+
+            val crystalChest = maxOf(
+                bossMaxHp * 2.2,
+                calculatePassivePerSecond() * 45.0,
+                500.0
+            )
+            val dmBonus = if (Random.nextFloat() < 0.45f || bossesDefeated == 1L) 1L else 0L
+            crystals += crystalChest
+            runCrystalsEarned += crystalChest
+            totalCrystalsEarned += crystalChest
+            experience += crystalChest
+            darkMatter += dmBonus
+
+            bossLastResult = if (dmBonus > 0L) {
+                "Победа! Сундук: +${NumberFormatter.format(crystalChest)} крист. и +$dmBonus ТМ"
+            } else {
+                "Победа! Сундук: +${NumberFormatter.format(crystalChest)} крист."
+            }
+            if (isSoundEnabled) {
+                SoundEffects.playBossDefeated()
+            }
+            viewModelScope.launch { persistNow() }
+        }
+    }
+
+    fun startExpedition(presetId: String) {
+        if (activeExpeditionId != null) return
+        val preset = GameCatalog.expeditions.find { it.id == presetId } ?: return
+        activeExpeditionId = preset.id
+        expeditionEndMs = System.currentTimeMillis() + preset.durationSeconds * 1000L
+        expeditionLastMessage = null
+        if (isSoundEnabled) SoundEffects.playPurchase()
+        publishUiState()
+        viewModelScope.launch { persistNow() }
+    }
+
+    fun claimExpedition() {
+        val presetId = activeExpeditionId ?: return
+        val preset = GameCatalog.expeditions.find { it.id == presetId } ?: return
+        if (System.currentTimeMillis() < expeditionEndMs) return
+
+        val rewardCrystals = maxOf(
+            calculatePassivePerSecond() * preset.crystalSecondsEquivalent,
+            calculateClickPowerWithoutOvercharge() * 35.0,
+            250.0
+        )
+        val dmFound = if (Random.nextDouble() < preset.darkMatterChance) 1L else 0L
+
+        crystals += rewardCrystals
+        runCrystalsEarned += rewardCrystals
+        totalCrystalsEarned += rewardCrystals
+        experience += rewardCrystals
+        darkMatter += dmFound
+
+        if (preset.id == "deep_sector_30") {
+            overchargeTicksRemaining = maxOf(overchargeTicksRemaining, 150)
+        }
+
+        expeditionLastMessage = if (dmFound > 0L) {
+            "Добыто +${NumberFormatter.format(rewardCrystals)} крист. и +$dmFound ТМ!"
+        } else {
+            "Флот вернулся: +${NumberFormatter.format(rewardCrystals)} крист."
+        }
+        activeExpeditionId = null
+        expeditionEndMs = 0L
+
+        if (isSoundEnabled) SoundEffects.playComet()
+        publishUiState()
+        viewModelScope.launch { persistNow() }
+    }
+
+    fun claimDailyQuest(questId: String) {
+        syncDailyQuestDate()
+        if (dailyClaimedIds.contains(questId)) return
+        val def = GameCatalog.dailyQuests.find { it.id == questId } ?: return
+        val progress = dailyProgressFor(def.type)
+        if (progress < def.target) return
+
+        dailyClaimedIds.add(questId)
+        val bonusCrystals = maxOf(
+            calculatePassivePerSecond() * def.rewardCrystalsFactor,
+            calculateClickPowerWithoutOvercharge() * 20.0,
+            200.0
+        )
+        darkMatter += def.rewardDarkMatter
+        crystals += bonusCrystals
+        runCrystalsEarned += bonusCrystals
+        totalCrystalsEarned += bonusCrystals
+        experience += bonusCrystals
+
+        if (isSoundEnabled) SoundEffects.playPurchase()
+        publishUiState()
+        viewModelScope.launch { persistNow() }
+    }
+
+    fun buyTalent(talentId: String) {
+        val def = GameCatalog.talents.find { it.id == talentId } ?: return
+        val level = talentLevels[talentId] ?: 0
+        if (level >= def.maxLevel) return
+        val cost = def.costAtLevel(level)
+        if (darkMatter < cost) return
+
+        darkMatter -= cost
+        spentDarkMatter += cost
+        talentLevels[talentId] = level + 1
+
+        if (isSoundEnabled) SoundEffects.playPurchase()
+        publishUiState()
+        viewModelScope.launch { persistNow() }
+    }
+
+    fun selectSkin(skin: CrystalSkin) {
+        val unlockedIds = computeUnlockedAchievementIds()
+        if (skin.requiredAchievementId != null && !unlockedIds.contains(skin.requiredAchievementId)) return
+        selectedSkin = skin
+        if (isSoundEnabled) SoundEffects.playPurchase()
+        publishUiState()
+        viewModelScope.launch { persistNow() }
+    }
+
+    fun selectLocation(location: SpaceLocation) {
+        val unlockedIds = computeUnlockedAchievementIds()
+        if (location.requiredAchievementId != null && !unlockedIds.contains(location.requiredAchievementId)) return
+        selectedLocation = location
+        if (isSoundEnabled) SoundEffects.playPurchase()
+        publishUiState()
+        viewModelScope.launch { persistNow() }
+    }
+
+    fun onSecretHeaderTap() {
+        if (secretHeaderUnlocked) return
+        headerTapCounter += 1
+        if (headerTapCounter >= 7) {
+            secretHeaderUnlocked = true
+            secretToast = "Секретное достижение «Тайна заголовка» открыто!"
+            if (isSoundEnabled) SoundEffects.playComet()
+            publishUiState()
+            viewModelScope.launch { persistNow() }
+        }
+    }
+
+    fun dismissSecretToast() {
+        secretToast = null
+        publishUiState()
     }
 
     fun dismissOfflineReward() {
@@ -265,29 +628,41 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         publishUiState()
     }
 
-    fun exportBackupCode(): String {
-        return BackupCodec.encode(snapshotData())
-    }
+    fun exportBackupCode(): String = BackupCodec.encode(snapshotData())
 
     fun importBackupCode(rawCode: String): Boolean {
         val decoded = BackupCodec.decode(rawCode) ?: return false
         applyPersistedData(decoded)
         offlineReward = null
         overchargeTicksRemaining = 0
+        feverTicksRemaining = 0
+        feverMeter = 0f
+        isBossActive = false
         publishUiState()
         viewModelScope.launch { persistNow() }
         return true
     }
 
+    fun selectBuyQuantity(quantity: BuyQuantity) {
+        selectedBuyQuantity = quantity
+        publishUiState()
+    }
+
     fun buyUpgrade(upgradeId: String) {
         val definition = GameCatalog.upgrades.find { it.id == upgradeId } ?: return
         val currentLevel = upgradeLevels[upgradeId] ?: 0
-        if (currentLevel >= GameCatalog.MAX_UPGRADE_LEVEL) return
-        val cost = definition.costAtLevel(currentLevel)
+        val plan = GameCatalog.calculateUpgradePurchase(
+            definition = definition,
+            currentLevel = currentLevel,
+            crystals = crystals,
+            discountFraction = discountFraction(),
+            quantity = selectedBuyQuantity
+        )
 
-        if (crystals >= cost) {
-            crystals -= cost
-            upgradeLevels[upgradeId] = currentLevel + 1
+        if (plan.canAfford && plan.levelsToBuy > 0) {
+            crystals -= plan.totalCost
+            upgradeLevels[upgradeId] = (currentLevel + plan.levelsToBuy).coerceAtMost(GameCatalog.MAX_UPGRADE_LEVEL)
+            dailyUpgrades += plan.levelsToBuy
             if (isSoundEnabled) {
                 SoundEffects.playPurchase()
             }
@@ -325,6 +700,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         runCrystalsEarned = 0.0
         experience = 0.0
         overchargeTicksRemaining = 0
+        feverTicksRemaining = 0
+        feverMeter = 0f
+        comboCount = 0
+        isBossActive = false
         upgradeLevels.clear()
 
         if (isSoundEnabled) {
@@ -365,11 +744,32 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         totalClicks = 0L
         criticalHits = 0L
         cometsCaught = 0L
+        bossesDefeated = 0L
+        feverActivations = 0L
+        bestCps = 0
+        playTimeSeconds = 0L
         darkMatter = 0L
+        spentDarkMatter = 0L
         prestigeCount = 0
         overchargeTicksRemaining = 0
+        feverTicksRemaining = 0
+        feverMeter = 0f
+        comboCount = 0
+        isBossActive = false
+        activeExpeditionId = null
+        expeditionEndMs = 0L
+        expeditionLastMessage = null
+        secretHeaderUnlocked = false
+        headerTapCounter = 0
+        selectedSkin = CrystalSkin.CLASSIC
+        selectedLocation = SpaceLocation.NEBULA
+        dailyClicks = 0
+        dailyUpgrades = 0
+        dailyFever = 0
+        dailyClaimedIds.clear()
         offlineReward = null
         upgradeLevels.clear()
+        talentLevels.clear()
         claimedAchievements.clear()
         publishUiState()
         viewModelScope.launch {
@@ -393,10 +793,26 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             totalClicks = totalClicks,
             criticalHits = criticalHits,
             cometsCaught = cometsCaught,
+            bossesDefeated = bossesDefeated,
+            feverActivations = feverActivations,
+            bestCps = bestCps,
+            playTimeSeconds = playTimeSeconds,
             darkMatter = darkMatter,
+            spentDarkMatter = spentDarkMatter,
             prestigeCount = prestigeCount,
             upgradeLevels = upgradeLevels.toMap(),
+            talentLevels = talentLevels.toMap(),
             claimedAchievements = claimedAchievements.toSet(),
+            secretHeaderUnlocked = secretHeaderUnlocked,
+            selectedSkinId = selectedSkin.id,
+            selectedLocationId = selectedLocation.id,
+            activeExpeditionId = activeExpeditionId,
+            expeditionEndMs = expeditionEndMs,
+            dailyDateKey = dailyDateKey,
+            dailyClicks = dailyClicks,
+            dailyUpgrades = dailyUpgrades,
+            dailyFever = dailyFever,
+            dailyClaimedIds = dailyClaimedIds.toSet(),
             isVibrationEnabled = isVibrationEnabled,
             isSoundEnabled = isSoundEnabled,
             lastActiveTimestampMs = System.currentTimeMillis()
@@ -421,14 +837,32 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         return current to next
     }
 
-    private fun prestigeMultiplier(): Double = 1.0 + darkMatter * 0.5
+    private fun isMidnightBonusActive(): Boolean {
+        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        return hour in 0..3
+    }
+
+    private fun midnightMultiplier(): Double = if (isMidnightBonusActive()) 1.2 else 1.0
+
+    private fun prestigeMultiplier(): Double = 1.0 + (darkMatter + spentDarkMatter) * 0.5
+
+    private fun discountFraction(): Double = (talentLevels["stellar_discount"] ?: 0) * 0.05
+
+    private fun feverDurationSec(): Int = GameCatalog.FEVER_DURATION_SEC + (talentLevels["fever_surge"] ?: 0)
+
+    private fun nextCometDelay(): Int {
+        val reduction = (talentLevels["comet_magnet"] ?: 0) * 65
+        val minTicks = maxOf(180, 380 - reduction)
+        val maxTicks = maxOf(280, 560 - reduction)
+        return Random.nextInt(minTicks, maxTicks)
+    }
 
     private fun calculateClickPowerWithoutOvercharge(): Double {
         val (rank, _) = resolveRank()
         val bonus = GameCatalog.upgrades
             .filter { it.type == UpgradeType.CLICK_POWER }
             .sumOf { (upgradeLevels[it.id] ?: 0) * it.baseGain }
-        return (1.0 + bonus) * rank.multiplier * prestigeMultiplier()
+        return (1.0 + bonus) * rank.multiplier * prestigeMultiplier() * midnightMultiplier()
     }
 
     private fun calculateClickPower(): Double {
@@ -438,10 +872,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun calculatePassivePerSecond(): Double {
         val (rank, _) = resolveRank()
+        val droneTalentMult = 1.0 + (talentLevels["drone_overclock"] ?: 0) * 0.25
         val bonus = GameCatalog.upgrades
             .filter { it.type == UpgradeType.PASSIVE_INCOME }
             .sumOf { (upgradeLevels[it.id] ?: 0) * it.baseGain }
-        return bonus * rank.multiplier * prestigeMultiplier()
+        return bonus * rank.multiplier * prestigeMultiplier() * droneTalentMult * midnightMultiplier()
     }
 
     private fun getMetricValue(metric: AchievementMetric): Double {
@@ -453,7 +888,23 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             AchievementMetric.CRITICAL_HITS -> criticalHits.toDouble()
             AchievementMetric.COMETS_CAUGHT -> cometsCaught.toDouble()
             AchievementMetric.PRESTIGE_COUNT -> prestigeCount.toDouble()
+            AchievementMetric.BOSSES_DEFEATED -> bossesDefeated.toDouble()
+            AchievementMetric.FEVER_COUNT -> feverActivations.toDouble()
+            AchievementMetric.SECRET_HEADER_TAP -> if (secretHeaderUnlocked) 1.0 else 0.0
         }
+    }
+
+    private fun computeUnlockedAchievementIds(): Set<String> {
+        return GameCatalog.achievements
+            .filter { getMetricValue(it.metric) >= it.targetValue }
+            .map { it.id }
+            .toSet()
+    }
+
+    private fun dailyProgressFor(type: DailyQuestType): Int = when (type) {
+        DailyQuestType.CLICKS -> dailyClicks
+        DailyQuestType.UPGRADES -> dailyUpgrades
+        DailyQuestType.FEVER -> dailyFever
     }
 
     private fun publishUiState() {
@@ -465,14 +916,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             ((experience - currentRank.xpThreshold) / span).toFloat().coerceIn(0f, 1f)
         }
 
+        val discount = discountFraction()
         val upgradeItems = GameCatalog.upgrades.map { def ->
             val level = upgradeLevels[def.id] ?: 0
-            val cost = def.costAtLevel(level)
+            val plan = GameCatalog.calculateUpgradePurchase(
+                definition = def,
+                currentLevel = level,
+                crystals = crystals,
+                discountFraction = discount,
+                quantity = selectedBuyQuantity
+            )
             UpgradeItemUi(
                 definition = def,
                 level = level,
-                nextCost = cost,
-                canAfford = crystals >= cost
+                nextCost = plan.totalCost,
+                levelsToBuy = plan.levelsToBuy,
+                canAfford = plan.canAfford
             )
         }
 
@@ -489,6 +948,40 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 isClaimed = claimed
             )
         }
+        val unlockedIds = achievementItems.filter { it.isUnlocked }.map { it.definition.id }.toSet()
+
+        val talentItems = GameCatalog.talents.map { def ->
+            val level = talentLevels[def.id] ?: 0
+            val cost = def.costAtLevel(level)
+            val maxed = level >= def.maxLevel
+            TalentItemUi(
+                definition = def,
+                level = level,
+                nextCostDm = cost,
+                canAfford = !maxed && darkMatter >= cost,
+                isMaxed = maxed
+            )
+        }
+
+        val dailyItems = GameCatalog.dailyQuests.map { def ->
+            val prog = dailyProgressFor(def.type)
+            val claimed = dailyClaimedIds.contains(def.id)
+            DailyQuestItemUi(
+                definition = def,
+                progress = prog,
+                isCompleted = prog >= def.target,
+                isClaimed = claimed
+            )
+        }
+
+        val passiveUpgradesSum = GameCatalog.upgrades
+            .filter { it.type == UpgradeType.PASSIVE_INCOME }
+            .sumOf { upgradeLevels[it.id] ?: 0 }
+        val visualDroneCount = if (passiveUpgradesSum <= 0) 0 else minOf(10, 1 + passiveUpgradesSum / 3)
+
+        val expRemainingSec = if (activeExpeditionId != null) {
+            ((expeditionEndMs - System.currentTimeMillis()) / 1000L).coerceAtLeast(0L)
+        } else 0L
 
         val potentialDm = GameCatalog.calculatePotentialDarkMatter(runCrystalsEarned)
 
@@ -500,19 +993,50 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             totalClicks = totalClicks,
             criticalHits = criticalHits,
             cometsCaught = cometsCaught,
+            bossesDefeated = bossesDefeated,
+            feverActivations = feverActivations,
+            bestCps = bestCps,
+            currentCps = recentClickTimestamps.size,
+            playTimeSeconds = playTimeSeconds,
             clickPower = calculateClickPower(),
             passivePerSecond = calculatePassivePerSecond(),
             currentRank = currentRank,
             nextRank = nextRank,
             rankProgress = rankProgress,
             darkMatter = darkMatter,
+            spentDarkMatter = spentDarkMatter,
             prestigeCount = prestigeCount,
             potentialDarkMatter = potentialDm,
             prestigeMultiplier = prestigeMultiplier(),
             nextDarkMatterThreshold = GameCatalog.nextDarkMatterRequirement(potentialDm),
             overchargeSecondsLeft = (overchargeTicksRemaining + 9) / 10,
+            feverMeter = feverMeter,
+            feverSecondsLeft = (feverTicksRemaining + 9) / 10,
+            comboCount = comboCount,
+            isMidnightBonusActive = isMidnightBonusActive(),
             isCometVisible = isCometVisible,
             cometSeed = cometSeed,
+            visualDroneCount = visualDroneCount,
+            selectedSkin = selectedSkin,
+            selectedLocation = selectedLocation,
+            unlockedAchievementIds = unlockedIds,
+            bossState = BossUiState(
+                isActive = isBossActive,
+                name = bossName,
+                currentHp = bossCurrentHp,
+                maxHp = bossMaxHp,
+                remainingSeconds = (bossTicksRemaining + 9) / 10,
+                cooldownSeconds = (bossCooldownTicks + 9) / 10,
+                lastResultMessage = bossLastResult
+            ),
+            expeditionState = ExpeditionUiState(
+                activePresetId = activeExpeditionId,
+                remainingSeconds = expRemainingSec,
+                isCompleted = activeExpeditionId != null && expRemainingSec == 0L,
+                lastRewardMessage = expeditionLastMessage
+            ),
+            talents = talentItems,
+            dailyQuests = dailyItems,
             offlineReward = offlineReward,
             availableUpdate = availableUpdate,
             isCheckingUpdate = isCheckingUpdate,
@@ -520,7 +1044,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             upgrades = upgradeItems,
             achievements = achievementItems,
             unclaimedAchievementsCount = achievementItems.count { it.isUnlocked && !it.isClaimed },
+            unclaimedQuestsCount = dailyItems.count { it.isCompleted && !it.isClaimed },
+            secretUnlockedToast = secretToast,
             selectedTab = selectedTab,
+            selectedBuyQuantity = selectedBuyQuantity,
             isVibrationEnabled = isVibrationEnabled,
             isSoundEnabled = isSoundEnabled,
             isLoaded = isLoaded
