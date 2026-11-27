@@ -159,6 +159,7 @@ export interface PersistedGameState {
   dailyClaimedIds: string[];
   isVibrationEnabled: boolean;
   isSoundEnabled: boolean;
+  isPotatoMode: boolean;
   lastActiveTimestampMs: number;
 }
 
@@ -209,36 +210,34 @@ export function calculateUpgradePurchase(
     return { levelsToBuy: 0, totalCost: 0, canAfford: false };
   }
 
+  const discountFactor = 1 - Math.min(0.5, Math.max(0, discountFraction));
+  let raw = upgrade.baseCost * Math.pow(upgrade.costMultiplier, currentLevel);
+
   if (quantity === 'X1') {
-    const cost = getUpgradeCost(upgrade, currentLevel, discountFraction);
+    const cost = Math.max(1, Math.floor(Math.floor(raw) * discountFactor));
     return { levelsToBuy: 1, totalCost: cost, canAfford: crystals >= cost };
   }
 
-  if (quantity === 'X10') {
-    const target = Math.min(10, remaining);
+  if (quantity === 'X10' || quantity === 'X100') {
+    const target = Math.min(quantity === 'X10' ? 10 : 100, remaining);
     let sum = 0;
     for (let i = 0; i < target; i++) {
-      sum += getUpgradeCost(upgrade, currentLevel + i, discountFraction);
-    }
-    return { levelsToBuy: target, totalCost: sum, canAfford: crystals >= sum };
-  }
-
-  if (quantity === 'X100') {
-    const target = Math.min(100, remaining);
-    let sum = 0;
-    for (let i = 0; i < target; i++) {
-      sum += getUpgradeCost(upgrade, currentLevel + i, discountFraction);
+      sum += Math.max(1, Math.floor(Math.floor(raw) * discountFactor));
+      raw *= upgrade.costMultiplier;
     }
     return { levelsToBuy: target, totalCost: sum, canAfford: crystals >= sum };
   }
 
   let sum = 0;
   let count = 0;
+  let firstCost = 0;
   for (let i = 0; i < remaining; i++) {
-    const stepCost = getUpgradeCost(upgrade, currentLevel + i, discountFraction);
+    const stepCost = Math.max(1, Math.floor(Math.floor(raw) * discountFactor));
+    if (i === 0) firstCost = stepCost;
     if (sum + stepCost <= crystals) {
       sum += stepCost;
       count++;
+      raw *= upgrade.costMultiplier;
     } else {
       break;
     }
@@ -246,7 +245,6 @@ export function calculateUpgradePurchase(
   if (count > 0) {
     return { levelsToBuy: count, totalCost: sum, canAfford: true };
   }
-  const firstCost = getUpgradeCost(upgrade, currentLevel, discountFraction);
   return { levelsToBuy: 1, totalCost: firstCost, canAfford: false };
 }
 
@@ -282,6 +280,25 @@ export const RANKS: MinerRank[] = Array.from({ length: MAX_PLAYER_LEVEL }, (_, i
     multiplier,
   };
 });
+
+export function resolveRankFast(experience: number): {
+  curr: MinerRank;
+  next: MinerRank | null;
+} {
+  let low = 0;
+  let high = RANKS.length - 1;
+  let idx = 0;
+  while (low <= high) {
+    const mid = (low + high) >>> 1;
+    if (experience >= RANKS[mid].xpThreshold) {
+      idx = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return { curr: RANKS[idx], next: RANKS[idx + 1] ?? null };
+}
 
 export const CRYSTAL_SKINS: CrystalSkinDefinition[] = [
   {

@@ -61,6 +61,7 @@ private const val GITHUB_ICON_PATH =
 fun SettingsDialog(
     isVibrationEnabled: Boolean,
     isSoundEnabled: Boolean,
+    isPotatoMode: Boolean,
     totalClicks: Long,
     criticalHits: Long,
     cometsCaught: Long,
@@ -69,6 +70,7 @@ fun SettingsDialog(
     updateStatusMessage: String?,
     onVibrationChange: (Boolean) -> Unit,
     onSoundChange: (Boolean) -> Unit,
+    onPotatoModeChange: (Boolean) -> Unit,
     onCheckUpdates: () -> Unit,
     onExportBackup: () -> String,
     onImportBackup: (String) -> Boolean,
@@ -303,6 +305,36 @@ fun SettingsDialog(
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
                             checkedTrackColor = CosmicColors.NeonCyan
+                        )
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Режим картошки",
+                            color = CosmicColors.TextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Отключает лишние эффекты и фон для плавного FPS",
+                            color = CosmicColors.TextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+                    Switch(
+                        checked = isPotatoMode,
+                        onCheckedChange = onPotatoModeChange,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = CosmicColors.NeonGold
                         )
                     )
                 }

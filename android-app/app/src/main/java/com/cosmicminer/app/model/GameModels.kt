@@ -329,6 +329,7 @@ data class GameUiState(
     val selectedBuyQuantity: BuyQuantity = BuyQuantity.X1,
     val isVibrationEnabled: Boolean = true,
     val isSoundEnabled: Boolean = true,
+    val isPotatoMode: Boolean = false,
     val isLoaded: Boolean = false
 )
 
@@ -365,9 +366,11 @@ object GameCatalog {
         if (remaining <= 0) {
             return UpgradePurchasePlan(levelsToBuy = 0, totalCost = 0.0, canAfford = false)
         }
+        val discountFactor = 1.0 - discountFraction.coerceIn(0.0, 0.5)
+        var raw = definition.baseCost * definition.costMultiplier.pow(currentLevel.toDouble())
         return when (quantity) {
             BuyQuantity.X1 -> {
-                val cost = definition.costAtLevel(currentLevel, discountFraction)
+                val cost = floor(raw * discountFactor).coerceAtLeast(1.0)
                 UpgradePurchasePlan(
                     levelsToBuy = 1,
                     totalCost = cost,
@@ -378,7 +381,8 @@ object GameCatalog {
                 val target = minOf(10, remaining)
                 var sum = 0.0
                 for (i in 0 until target) {
-                    sum += definition.costAtLevel(currentLevel + i, discountFraction)
+                    sum += floor(raw * discountFactor).coerceAtLeast(1.0)
+                    raw *= definition.costMultiplier
                 }
                 UpgradePurchasePlan(
                     levelsToBuy = target,
@@ -390,7 +394,8 @@ object GameCatalog {
                 val target = minOf(100, remaining)
                 var sum = 0.0
                 for (i in 0 until target) {
-                    sum += definition.costAtLevel(currentLevel + i, discountFraction)
+                    sum += floor(raw * discountFactor).coerceAtLeast(1.0)
+                    raw *= definition.costMultiplier
                 }
                 UpgradePurchasePlan(
                     levelsToBuy = target,
@@ -402,10 +407,11 @@ object GameCatalog {
                 var sum = 0.0
                 var count = 0
                 for (i in 0 until remaining) {
-                    val stepCost = definition.costAtLevel(currentLevel + i, discountFraction)
+                    val stepCost = floor(raw * discountFactor).coerceAtLeast(1.0)
                     if (sum + stepCost <= crystals) {
                         sum += stepCost
                         count++
+                        raw *= definition.costMultiplier
                     } else {
                         break
                     }
@@ -413,7 +419,7 @@ object GameCatalog {
                 if (count > 0) {
                     UpgradePurchasePlan(levelsToBuy = count, totalCost = sum, canAfford = true)
                 } else {
-                    val firstCost = definition.costAtLevel(currentLevel, discountFraction)
+                    val firstCost = floor(raw * discountFactor).coerceAtLeast(1.0)
                     UpgradePurchasePlan(levelsToBuy = 1, totalCost = firstCost, canAfford = false)
                 }
             }

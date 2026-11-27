@@ -138,6 +138,7 @@ fun CosmicMinerScreen(viewModel: GameViewModel) {
         SettingsDialog(
             isVibrationEnabled = state.isVibrationEnabled,
             isSoundEnabled = state.isSoundEnabled,
+            isPotatoMode = state.isPotatoMode,
             totalClicks = state.totalClicks,
             criticalHits = state.criticalHits,
             cometsCaught = state.cometsCaught,
@@ -146,6 +147,7 @@ fun CosmicMinerScreen(viewModel: GameViewModel) {
             updateStatusMessage = state.updateStatusMessage,
             onVibrationChange = viewModel::setVibrationEnabled,
             onSoundChange = viewModel::setSoundEnabled,
+            onPotatoModeChange = viewModel::setPotatoMode,
             onCheckUpdates = viewModel::checkForUpdatesManual,
             onExportBackup = viewModel::exportBackupCode,
             onImportBackup = viewModel::importBackupCode,
@@ -164,14 +166,20 @@ fun CosmicMinerScreen(viewModel: GameViewModel) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            CosmicColors.DeepSpaceTop,
-                            CosmicColors.DeepSpaceBottom,
-                            Color(0xFF090C1C)
+                .then(
+                    if (state.isPotatoMode) {
+                        Modifier.background(CosmicColors.DeepSpaceTop)
+                    } else {
+                        Modifier.background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    CosmicColors.DeepSpaceTop,
+                                    CosmicColors.DeepSpaceBottom,
+                                    Color(0xFF090C1C)
+                                )
+                            )
                         )
-                    )
+                    }
                 )
                 .padding(innerPadding)
                 .statusBarsPadding()
@@ -211,6 +219,7 @@ fun CosmicMinerScreen(viewModel: GameViewModel) {
                     selectedLocation = state.selectedLocation,
                     bossState = state.bossState,
                     isVibrationEnabled = state.isVibrationEnabled,
+                    isPotatoMode = state.isPotatoMode,
                     onCrystalTap = viewModel::onCrystalClick,
                     onCometTap = viewModel::catchComet,
                     modifier = Modifier

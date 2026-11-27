@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { BarChart3, Check, Copy, Download, Smartphone, Trash2, Volume2, X } from 'lucide-react';
+import { BarChart3, Check, Copy, Download, Gauge, Smartphone, Trash2, Volume2, X } from 'lucide-react';
 import { formatCrystalCount } from '../types/game';
 
 interface SettingsModalProps {
   isVibrationEnabled: boolean;
   isSoundEnabled: boolean;
+  isPotatoMode: boolean;
   totalClicks: number;
   criticalHits: number;
   cometsCaught: number;
@@ -12,6 +13,7 @@ interface SettingsModalProps {
   totalCrystalsEarned: number;
   onToggleVibration: (enabled: boolean) => void;
   onToggleSound: (enabled: boolean) => void;
+  onTogglePotatoMode: (enabled: boolean) => void;
   onExportBackup: () => string;
   onImportBackup: (code: string) => boolean;
   onOpenStats: () => void;
@@ -22,6 +24,7 @@ interface SettingsModalProps {
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isVibrationEnabled,
   isSoundEnabled,
+  isPotatoMode,
   totalClicks,
   criticalHits,
   cometsCaught,
@@ -29,6 +32,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   totalCrystalsEarned,
   onToggleVibration,
   onToggleSound,
+  onTogglePotatoMode,
   onExportBackup,
   onImportBackup,
   onOpenStats,
@@ -64,7 +68,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-3xl bg-[#111732] border border-violet-400/25 p-6 shadow-2xl">
         <div className="flex items-center justify-between">
           <h2 id="settings-title" className="font-display text-xl font-bold text-slate-100">
-            Настройки · v1.2.0
+            Настройки · v1.2.1
           </h2>
           <button
             type="button"
@@ -130,6 +134,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <span
                 className={`block w-5 h-5 rounded-full bg-white transition-transform ${
                   isSoundEnabled ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 p-3.5 rounded-2xl bg-[#182044]/70">
+            <div className="flex items-center gap-3">
+              <Gauge className="w-5 h-5 text-amber-300 shrink-0" />
+              <div>
+                <div className="text-sm font-semibold text-slate-100">
+                  Режим картошки
+                </div>
+                <div className="text-xs text-slate-400">
+                  Отключает лишние эффекты и фон для плавных 60 FPS
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={isPotatoMode}
+              onClick={() => onTogglePotatoMode(!isPotatoMode)}
+              className={`w-12 h-7 rounded-full p-1 transition-colors cursor-pointer shrink-0 ${
+                isPotatoMode ? 'bg-amber-400' : 'bg-slate-700'
+              }`}
+            >
+              <span
+                className={`block w-5 h-5 rounded-full bg-white transition-transform ${
+                  isPotatoMode ? 'translate-x-5' : 'translate-x-0'
                 }`}
               />
             </button>

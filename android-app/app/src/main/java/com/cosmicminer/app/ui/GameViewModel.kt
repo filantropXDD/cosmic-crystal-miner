@@ -57,6 +57,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var spentDarkMatter = 0L
     private var prestigeCount = 0
     private var upgradeLevels = mutableMapOf<String, Int>()
+    private var cachedClickBonus = 0.0
+    private var cachedPassiveBonus = 0.0
+    private var cachedTotalUpgradesBought = 0
+    private var cachedVisualDroneCount = 0
     private var talentLevels = mutableMapOf<String, Int>()
     private var claimedAchievements = mutableSetOf<String>()
     private var secretHeaderUnlocked = false
@@ -77,7 +81,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var selectedBuyQuantity = BuyQuantity.X1
     private var isVibrationEnabled = true
     private var isSoundEnabled = true
+    private var isPotatoMode = false
     private var isLoaded = false
+    private var hasDirtyProgress = false
+    private var lastHeavyPublishMs = 0L
 
     private var overchargeTicksRemaining = 0
     private var isCometVisible = false
@@ -150,17 +157,20 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Main game loop (10 ticks per second)
+        // Main game loop (10 logic ticks/sec, throttled UI publishing for passive ticks)
         viewModelScope.launch {
             var saveTickCounter = 0
             var secondTickCounter = 0
+            var passivePublishToggle = 0
             while (true) {
                 delay(100L)
                 if (!isLoaded) continue
 
                 var needsPublish = false
+                var passiveOnly = false
                 ticksSinceLastClick++
                 secondTickCounter++
+                passivePublishToggle++
 
                 // Prune CPS window every tick
                 val nowMs = System.currentTimeMillis()
@@ -177,10 +187,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     runCrystalsEarned += delta
                     totalCrystalsEarned += delta
                     experience += delta
+                    hasDirtyProgress = true
                     if (isBossActive) {
                         damageBoss(delta)
                     }
-                    needsPublish = true
+                    val uiPublishMod = if (isPotatoMode) 4 else 2
+                    if (passivePublishToggle % uiPublishMod == 0) {
+                        needsPublish = true
+                        passiveOnly = true
+                    }
                 }
 
                 // Overcharge countdown
@@ -190,6 +205,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     val newSec = (overchargeTicksRemaining + 9) / 10
                     if (prevSec != newSec || overchargeTicksRemaining == 0) {
                         needsPublish = true
+                        passiveOnly = false
                     }
                 }
 
@@ -204,11 +220,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                             comboCount = 0
                         }
                         needsPublish = true
+                        passiveOnly = false
                     }
                 } else if (feverMeter > 0f && ticksSinceLastClick > 16) {
                     feverMeter = (feverMeter - 0.045f).coerceAtLeast(0f)
                     if (feverMeter == 0f) comboCount = 0
                     needsPublish = true
+                    passiveOnly = false
                 }
 
                 // Comet lifecycle
@@ -218,6 +236,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         isCometVisible = false
                         nextCometDelayTicks = nextCometDelay()
                         needsPublish = true
+                        passiveOnly = false
                     }
                 } else {
                     nextCometDelayTicks--
@@ -226,6 +245,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         cometTicksRemaining = 65
                         cometSeed = nowMs
                         needsPublish = true
+                        passiveOnly = false
                     }
                 }
 
@@ -240,20 +260,26 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         bossAutoSpawnTicks = GameCatalog.BOSS_AUTO_SPAWN_SEC * 10
                         bossLastResult = "Босс улетел в гиперпространство"
                         needsPublish = true
+                        passiveOnly = false
                     } else if (prevSec != newSec) {
                         needsPublish = true
+                        passiveOnly = false
                     }
                 } else {
                     if (bossCooldownTicks > 0) {
                         val prevSec = (bossCooldownTicks + 9) / 10
                         bossCooldownTicks--
                         val newSec = (bossCooldownTicks + 9) / 10
-                        if (prevSec != newSec || bossCooldownTicks == 0) needsPublish = true
+                        if (prevSec != newSec || bossCooldownTicks == 0) {
+                            needsPublish = true
+                            passiveOnly = false
+                        }
                     }
                     bossAutoSpawnTicks--
                     if (bossAutoSpawnTicks <= 0) {
                         spawnBossInternal()
                         needsPublish = true
+                        passiveOnly = false
                     }
                 }
 
@@ -262,20 +288,20 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     secondTickCounter = 0
                     playTimeSeconds += 1L
                     syncDailyQuestDate()
-                    if (activeExpeditionId != null) {
-                        needsPublish = true
-                    }
                     needsPublish = true
+                    passiveOnly = false
                 }
 
                 if (needsPublish) {
-                    publishUiState()
+                    publishUiState(lightweight = passiveOnly)
                 }
 
                 saveTickCounter++
-                if (saveTickCounter >= 25) {
+                if (saveTickCounter >= 30) {
                     saveTickCounter = 0
-                    persistNow()
+                    if (hasDirtyProgress) {
+                        persistNow()
+                    }
                 }
             }
         }
@@ -311,6 +337,29 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         dailyClaimedIds = saved.dailyClaimedIds.toMutableSet()
         isVibrationEnabled = saved.isVibrationEnabled
         isSoundEnabled = saved.isSoundEnabled
+        isPotatoMode = saved.isPotatoMode
+        recomputeUpgradeSums()
+    }
+
+    private fun recomputeUpgradeSums() {
+        var clickSum = 0.0
+        var passiveSum = 0.0
+        var totalLevels = 0
+        var passiveLevels = 0
+        for (def in GameCatalog.upgrades) {
+            val lvl = upgradeLevels[def.id] ?: 0
+            totalLevels += lvl
+            if (def.type == UpgradeType.CLICK_POWER) {
+                clickSum += lvl * def.baseGain
+            } else {
+                passiveSum += lvl * def.baseGain
+                passiveLevels += lvl
+            }
+        }
+        cachedClickBonus = clickSum
+        cachedPassiveBonus = passiveSum
+        cachedTotalUpgradesBought = totalLevels
+        cachedVisualDroneCount = if (passiveLevels <= 0) 0 else minOf(10, 1 + passiveLevels / 3)
     }
 
     private fun syncDailyQuestDate() {
@@ -369,6 +418,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         experience += gained
         totalClicks += 1L
         dailyClicks += 1
+        hasDirtyProgress = true
         if (isCrit) {
             criticalHits += 1L
         }
@@ -381,7 +431,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             SoundEffects.playTap(isCritical = isCrit, isFever = activeFever)
         }
 
-        publishUiState()
+        publishUiState(lightweight = true)
         return ClickResult(gained = gained, isCritical = isCrit, isFever = activeFever)
     }
 
@@ -663,6 +713,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             crystals -= plan.totalCost
             upgradeLevels[upgradeId] = (currentLevel + plan.levelsToBuy).coerceAtMost(GameCatalog.MAX_UPGRADE_LEVEL)
             dailyUpgrades += plan.levelsToBuy
+            recomputeUpgradeSums()
             if (isSoundEnabled) {
                 SoundEffects.playPurchase()
             }
@@ -705,6 +756,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         comboCount = 0
         isBossActive = false
         upgradeLevels.clear()
+        recomputeUpgradeSums()
 
         if (isSoundEnabled) {
             SoundEffects.playPrestige()
@@ -724,7 +776,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         isVibrationEnabled = enabled
         publishUiState()
         viewModelScope.launch {
-            repository.saveSettings(isVibrationEnabled, isSoundEnabled)
+            repository.saveSettings(isVibrationEnabled, isSoundEnabled, isPotatoMode)
         }
     }
 
@@ -732,7 +784,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         isSoundEnabled = enabled
         publishUiState()
         viewModelScope.launch {
-            repository.saveSettings(isVibrationEnabled, isSoundEnabled)
+            repository.saveSettings(isVibrationEnabled, isSoundEnabled, isPotatoMode)
+        }
+    }
+
+    fun setPotatoMode(enabled: Boolean) {
+        isPotatoMode = enabled
+        publishUiState()
+        viewModelScope.launch {
+            repository.saveSettings(isVibrationEnabled, isSoundEnabled, isPotatoMode)
         }
     }
 
@@ -771,9 +831,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         upgradeLevels.clear()
         talentLevels.clear()
         claimedAchievements.clear()
+        recomputeUpgradeSums()
+        hasDirtyProgress = false
         publishUiState()
         viewModelScope.launch {
-            repository.resetProgress(keepVibration = isVibrationEnabled, keepSound = isSoundEnabled)
+            repository.resetProgress(
+                keepVibration = isVibrationEnabled,
+                keepSound = isSoundEnabled,
+                keepPotatoMode = isPotatoMode
+            )
         }
     }
 
@@ -815,26 +881,31 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             dailyClaimedIds = dailyClaimedIds.toSet(),
             isVibrationEnabled = isVibrationEnabled,
             isSoundEnabled = isSoundEnabled,
+            isPotatoMode = isPotatoMode,
             lastActiveTimestampMs = System.currentTimeMillis()
         )
     }
 
     private suspend fun persistNow() {
+        hasDirtyProgress = false
         repository.saveProgress(snapshotData())
     }
 
     private fun resolveRank(): Pair<MinerRank, MinerRank?> {
         val ranks = GameCatalog.ranks
-        var current = ranks.first()
-        var next: MinerRank? = ranks.getOrNull(1)
-
-        for (i in ranks.indices) {
-            if (experience >= ranks[i].xpThreshold) {
-                current = ranks[i]
-                next = ranks.getOrNull(i + 1)
+        var low = 0
+        var high = ranks.lastIndex
+        var idx = 0
+        while (low <= high) {
+            val mid = (low + high) ushr 1
+            if (experience >= ranks[mid].xpThreshold) {
+                idx = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
             }
         }
-        return current to next
+        return ranks[idx] to ranks.getOrNull(idx + 1)
     }
 
     private fun isMidnightBonusActive(): Boolean {
@@ -859,10 +930,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun calculateClickPowerWithoutOvercharge(): Double {
         val (rank, _) = resolveRank()
-        val bonus = GameCatalog.upgrades
-            .filter { it.type == UpgradeType.CLICK_POWER }
-            .sumOf { (upgradeLevels[it.id] ?: 0) * it.baseGain }
-        return (1.0 + bonus) * rank.multiplier * prestigeMultiplier() * midnightMultiplier()
+        return (1.0 + cachedClickBonus) * rank.multiplier * prestigeMultiplier() * midnightMultiplier()
     }
 
     private fun calculateClickPower(): Double {
@@ -873,17 +941,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private fun calculatePassivePerSecond(): Double {
         val (rank, _) = resolveRank()
         val droneTalentMult = 1.0 + (talentLevels["drone_overclock"] ?: 0) * 0.25
-        val bonus = GameCatalog.upgrades
-            .filter { it.type == UpgradeType.PASSIVE_INCOME }
-            .sumOf { (upgradeLevels[it.id] ?: 0) * it.baseGain }
-        return bonus * rank.multiplier * prestigeMultiplier() * droneTalentMult * midnightMultiplier()
+        return cachedPassiveBonus * rank.multiplier * prestigeMultiplier() * droneTalentMult * midnightMultiplier()
     }
 
     private fun getMetricValue(metric: AchievementMetric): Double {
         return when (metric) {
             AchievementMetric.TOTAL_CLICKS -> totalClicks.toDouble()
             AchievementMetric.TOTAL_CRYSTALS_EARNED -> totalCrystalsEarned
-            AchievementMetric.TOTAL_UPGRADES_BOUGHT -> upgradeLevels.values.sum().toDouble()
+            AchievementMetric.TOTAL_UPGRADES_BOUGHT -> cachedTotalUpgradesBought.toDouble()
             AchievementMetric.PASSIVE_PER_SEC -> calculatePassivePerSecond()
             AchievementMetric.CRITICAL_HITS -> criticalHits.toDouble()
             AchievementMetric.COMETS_CAUGHT -> cometsCaught.toDouble()
@@ -907,7 +972,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         DailyQuestType.FEVER -> dailyFever
     }
 
-    private fun publishUiState() {
+    private fun publishUiState(lightweight: Boolean = false) {
+        val prev = _uiState.value
         val (currentRank, nextRank) = resolveRank()
         val rankProgress = if (nextRank == null) {
             1f
@@ -916,68 +982,92 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             ((experience - currentRank.xpThreshold) / span).toFloat().coerceIn(0f, 1f)
         }
 
+        val nowUiMs = System.currentTimeMillis()
+        val upgradeThrottleMs = if (isPotatoMode) 400L else 180L
+        val refreshUpgrades = !lightweight ||
+            prev.upgrades.isEmpty() ||
+            (selectedTab == BottomTab.UPGRADES && nowUiMs - lastHeavyPublishMs >= upgradeThrottleMs)
+        if (refreshUpgrades) {
+            lastHeavyPublishMs = nowUiMs
+        }
+
         val discount = discountFraction()
-        val upgradeItems = GameCatalog.upgrades.map { def ->
-            val level = upgradeLevels[def.id] ?: 0
-            val plan = GameCatalog.calculateUpgradePurchase(
-                definition = def,
-                currentLevel = level,
-                crystals = crystals,
-                discountFraction = discount,
-                quantity = selectedBuyQuantity
-            )
-            UpgradeItemUi(
-                definition = def,
-                level = level,
-                nextCost = plan.totalCost,
-                levelsToBuy = plan.levelsToBuy,
-                canAfford = plan.canAfford
-            )
+        val upgradeItems = if (refreshUpgrades) {
+            GameCatalog.upgrades.map { def ->
+                val level = upgradeLevels[def.id] ?: 0
+                val plan = GameCatalog.calculateUpgradePurchase(
+                    definition = def,
+                    currentLevel = level,
+                    crystals = crystals,
+                    discountFraction = discount,
+                    quantity = selectedBuyQuantity
+                )
+                UpgradeItemUi(
+                    definition = def,
+                    level = level,
+                    nextCost = plan.totalCost,
+                    levelsToBuy = plan.levelsToBuy,
+                    canAfford = plan.canAfford
+                )
+            }
+        } else {
+            prev.upgrades
         }
 
-        val achievementItems = GameCatalog.achievements.map { def ->
-            val currentVal = getMetricValue(def.metric)
-            val progress = (currentVal / def.targetValue).toFloat().coerceIn(0f, 1f)
-            val unlocked = currentVal >= def.targetValue
-            val claimed = claimedAchievements.contains(def.id)
-            AchievementItemUi(
-                definition = def,
-                currentValue = currentVal,
-                progress = progress,
-                isUnlocked = unlocked,
-                isClaimed = claimed
-            )
+        val achievementItems = if (!lightweight || prev.achievements.isEmpty()) {
+            GameCatalog.achievements.map { def ->
+                val currentVal = getMetricValue(def.metric)
+                val progress = (currentVal / def.targetValue).toFloat().coerceIn(0f, 1f)
+                val unlocked = currentVal >= def.targetValue
+                val claimed = claimedAchievements.contains(def.id)
+                AchievementItemUi(
+                    definition = def,
+                    currentValue = currentVal,
+                    progress = progress,
+                    isUnlocked = unlocked,
+                    isClaimed = claimed
+                )
+            }
+        } else {
+            prev.achievements
         }
-        val unlockedIds = achievementItems.filter { it.isUnlocked }.map { it.definition.id }.toSet()
-
-        val talentItems = GameCatalog.talents.map { def ->
-            val level = talentLevels[def.id] ?: 0
-            val cost = def.costAtLevel(level)
-            val maxed = level >= def.maxLevel
-            TalentItemUi(
-                definition = def,
-                level = level,
-                nextCostDm = cost,
-                canAfford = !maxed && darkMatter >= cost,
-                isMaxed = maxed
-            )
+        val unlockedIds = if (!lightweight || prev.unlockedAchievementIds.isEmpty()) {
+            achievementItems.filter { it.isUnlocked }.map { it.definition.id }.toSet()
+        } else {
+            prev.unlockedAchievementIds
         }
 
-        val dailyItems = GameCatalog.dailyQuests.map { def ->
-            val prog = dailyProgressFor(def.type)
-            val claimed = dailyClaimedIds.contains(def.id)
-            DailyQuestItemUi(
-                definition = def,
-                progress = prog,
-                isCompleted = prog >= def.target,
-                isClaimed = claimed
-            )
+        val talentItems = if (!lightweight || prev.talents.isEmpty()) {
+            GameCatalog.talents.map { def ->
+                val level = talentLevels[def.id] ?: 0
+                val cost = def.costAtLevel(level)
+                val maxed = level >= def.maxLevel
+                TalentItemUi(
+                    definition = def,
+                    level = level,
+                    nextCostDm = cost,
+                    canAfford = !maxed && darkMatter >= cost,
+                    isMaxed = maxed
+                )
+            }
+        } else {
+            prev.talents
         }
 
-        val passiveUpgradesSum = GameCatalog.upgrades
-            .filter { it.type == UpgradeType.PASSIVE_INCOME }
-            .sumOf { upgradeLevels[it.id] ?: 0 }
-        val visualDroneCount = if (passiveUpgradesSum <= 0) 0 else minOf(10, 1 + passiveUpgradesSum / 3)
+        val dailyItems = if (!lightweight || prev.dailyQuests.isEmpty()) {
+            GameCatalog.dailyQuests.map { def ->
+                val prog = dailyProgressFor(def.type)
+                val claimed = dailyClaimedIds.contains(def.id)
+                DailyQuestItemUi(
+                    definition = def,
+                    progress = prog,
+                    isCompleted = prog >= def.target,
+                    isClaimed = claimed
+                )
+            }
+        } else {
+            prev.dailyQuests
+        }
 
         val expRemainingSec = if (activeExpeditionId != null) {
             ((expeditionEndMs - System.currentTimeMillis()) / 1000L).coerceAtLeast(0L)
@@ -1016,7 +1106,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             isMidnightBonusActive = isMidnightBonusActive(),
             isCometVisible = isCometVisible,
             cometSeed = cometSeed,
-            visualDroneCount = visualDroneCount,
+            visualDroneCount = cachedVisualDroneCount,
             selectedSkin = selectedSkin,
             selectedLocation = selectedLocation,
             unlockedAchievementIds = unlockedIds,
@@ -1050,6 +1140,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             selectedBuyQuantity = selectedBuyQuantity,
             isVibrationEnabled = isVibrationEnabled,
             isSoundEnabled = isSoundEnabled,
+            isPotatoMode = isPotatoMode,
             isLoaded = isLoaded
         )
     }

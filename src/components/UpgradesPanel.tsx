@@ -53,6 +53,9 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   multiverse_matrix: Network,
 };
 
+const CLICK_UPGRADES = UPGRADES.filter((u) => u.type === 'CLICK_POWER');
+const PASSIVE_UPGRADES = UPGRADES.filter((u) => u.type === 'PASSIVE_INCOME');
+
 export const UpgradesPanel: React.FC<UpgradesPanelProps> = ({
   crystals,
   upgradeLevels,
@@ -61,8 +64,8 @@ export const UpgradesPanel: React.FC<UpgradesPanelProps> = ({
   onBuyQuantityChange,
   onBuyUpgrade,
 }) => {
-  const clickUpgrades = UPGRADES.filter((u) => u.type === 'CLICK_POWER');
-  const passiveUpgrades = UPGRADES.filter((u) => u.type === 'PASSIVE_INCOME');
+  const clickUpgrades = CLICK_UPGRADES;
+  const passiveUpgrades = PASSIVE_UPGRADES;
 
   const renderCard = (upgrade: UpgradeDefinition) => {
     const level = upgradeLevels[upgrade.id] ?? 0;

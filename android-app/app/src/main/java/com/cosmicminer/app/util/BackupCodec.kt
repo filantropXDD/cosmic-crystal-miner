@@ -32,6 +32,7 @@ object BackupCodec {
             put("selectedLocationId", data.selectedLocationId)
             put("isVibrationEnabled", data.isVibrationEnabled)
             put("isSoundEnabled", data.isSoundEnabled)
+            put("isPotatoMode", data.isPotatoMode)
 
             val upgradesObj = JSONObject()
             data.upgradeLevels.forEach { (id, level) ->
@@ -106,6 +107,7 @@ object BackupCodec {
                 selectedLocationId = SpaceLocation.fromId(obj.optString("selectedLocationId", SpaceLocation.NEBULA.id)).id,
                 isVibrationEnabled = obj.optBoolean("isVibrationEnabled", true),
                 isSoundEnabled = obj.optBoolean("isSoundEnabled", true),
+                isPotatoMode = obj.optBoolean("isPotatoMode", false),
                 lastActiveTimestampMs = System.currentTimeMillis()
             )
         } catch (_: Throwable) {

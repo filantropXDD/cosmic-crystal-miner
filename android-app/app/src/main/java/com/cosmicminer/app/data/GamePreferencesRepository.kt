@@ -51,6 +51,7 @@ data class PersistedGameData(
     val dailyClaimedIds: Set<String> = emptySet(),
     val isVibrationEnabled: Boolean = true,
     val isSoundEnabled: Boolean = true,
+    val isPotatoMode: Boolean = false,
     val lastActiveTimestampMs: Long = 0L
 )
 
@@ -84,6 +85,7 @@ class GamePreferencesRepository(private val context: Context) {
         val DAILY_CLAIMED = stringSetPreferencesKey("daily_claimed")
         val VIBRATION_ENABLED = booleanPreferencesKey("vibration_enabled")
         val SOUND_ENABLED = booleanPreferencesKey("sound_enabled")
+        val POTATO_MODE = booleanPreferencesKey("potato_mode")
         val LAST_ACTIVE_MS = longPreferencesKey("last_active_timestamp_ms")
 
         fun upgradeLevel(id: String) = intPreferencesKey("upgrade_level_$id")
@@ -129,6 +131,7 @@ class GamePreferencesRepository(private val context: Context) {
             dailyClaimedIds = prefs[Keys.DAILY_CLAIMED] ?: emptySet(),
             isVibrationEnabled = prefs[Keys.VIBRATION_ENABLED] ?: true,
             isSoundEnabled = prefs[Keys.SOUND_ENABLED] ?: true,
+            isPotatoMode = prefs[Keys.POTATO_MODE] ?: false,
             lastActiveTimestampMs = prefs[Keys.LAST_ACTIVE_MS] ?: 0L
         )
     }
@@ -162,6 +165,7 @@ class GamePreferencesRepository(private val context: Context) {
             prefs[Keys.DAILY_CLAIMED] = data.dailyClaimedIds
             prefs[Keys.VIBRATION_ENABLED] = data.isVibrationEnabled
             prefs[Keys.SOUND_ENABLED] = data.isSoundEnabled
+            prefs[Keys.POTATO_MODE] = data.isPotatoMode
             prefs[Keys.LAST_ACTIVE_MS] = data.lastActiveTimestampMs
             data.upgradeLevels.forEach { (id, level) ->
                 prefs[Keys.upgradeLevel(id)] = level
@@ -172,18 +176,20 @@ class GamePreferencesRepository(private val context: Context) {
         }
     }
 
-    suspend fun saveSettings(vibrationEnabled: Boolean, soundEnabled: Boolean) {
+    suspend fun saveSettings(vibrationEnabled: Boolean, soundEnabled: Boolean, potatoMode: Boolean) {
         context.gameDataStore.edit { prefs ->
             prefs[Keys.VIBRATION_ENABLED] = vibrationEnabled
             prefs[Keys.SOUND_ENABLED] = soundEnabled
+            prefs[Keys.POTATO_MODE] = potatoMode
         }
     }
 
-    suspend fun resetProgress(keepVibration: Boolean, keepSound: Boolean) {
+    suspend fun resetProgress(keepVibration: Boolean, keepSound: Boolean, keepPotatoMode: Boolean) {
         context.gameDataStore.edit { prefs ->
             prefs.clear()
             prefs[Keys.VIBRATION_ENABLED] = keepVibration
             prefs[Keys.SOUND_ENABLED] = keepSound
+            prefs[Keys.POTATO_MODE] = keepPotatoMode
             prefs[Keys.LAST_ACTIVE_MS] = System.currentTimeMillis()
         }
     }

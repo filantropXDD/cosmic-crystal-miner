@@ -18,7 +18,6 @@ import {
   OVERCHARGE_MULTIPLIER,
   OfflineReward,
   PersistedGameState,
-  RANKS,
   SpaceLocationId,
   TALENTS,
   UPGRADES,
@@ -29,6 +28,7 @@ import {
   formatRate,
   getTalentCost,
   nextDarkMatterRequirement,
+  resolveRankFast,
 } from './types/game';
 import { CrystalCanvas } from './components/CrystalCanvas';
 import { UpgradesPanel } from './components/UpgradesPanel';
@@ -93,20 +93,10 @@ const INITIAL_STATE: PersistedGameState = {
   dailyClaimedIds: [],
   isVibrationEnabled: true,
   isSoundEnabled: true,
+  isPotatoMode: false,
   lastActiveTimestampMs: 0,
 };
 
-function computeRank(experience: number) {
-  let curr = RANKS[0];
-  let next: (typeof RANKS)[number] | null = RANKS[1] ?? null;
-  for (let i = 0; i < RANKS.length; i++) {
-    if (experience >= RANKS[i].xpThreshold) {
-      curr = RANKS[i];
-      next = RANKS[i + 1] ?? null;
-    }
-  }
-  return { curr, next };
-}
 
 function loadInitialData(): { state: PersistedGameState; offline: OfflineReward | null } {
   if (typeof window === 'undefined') return { state: INITIAL_STATE, offline: null };
@@ -133,6 +123,7 @@ function loadInitialData(): { state: PersistedGameState; offline: OfflineReward 
       dailyClaimedIds: sameDay && Array.isArray(parsed.dailyClaimedIds)
         ? parsed.dailyClaimedIds
         : [],
+      isPotatoMode: Boolean(parsed.isPotatoMode ?? false),
     };
 
     let offline: OfflineReward | null = null;
@@ -142,7 +133,7 @@ function loadInitialData(): { state: PersistedGameState; offline: OfflineReward 
         MAX_OFFLINE_SECONDS,
         Math.max(0, Math.floor((now - merged.lastActiveTimestampMs) / 1000))
       );
-      const { curr } = computeRank(merged.experience);
+      const { curr } = resolveRankFast(merged.experience);
       const prestigeMult = 1 + (merged.darkMatter + merged.spentDarkMatter) * 0.5;
       const droneMult = 1 + (merged.talentLevels.drone_overclock ?? 0) * 0.25;
       const offlineVaultMult = 1 + (merged.talentLevels.cryo_vault ?? 0) * 0.35;
@@ -218,9 +209,19 @@ export default function App() {
 
   const gameRef = useRef(game);
   gameRef.current = game;
+  const dirtyRef = useRef(Boolean(initialData.offline));
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
+    dirtyRef.current = true;
+  }, [game]);
 
   const { currentRank, nextRank, rankProgress } = useMemo(() => {
-    const { curr, next } = computeRank(game.experience);
+    const { curr, next } = resolveRankFast(game.experience);
     const progress = next
       ? Math.min(
           1,
@@ -440,16 +441,19 @@ export default function App() {
   feverSecondsRef.current = feverSecondsLeft;
 
   useEffect(() => {
+    const tickMs = game.isPotatoMode ? 400 : 200;
     const interval = window.setInterval(() => {
       const now = Date.now();
       // CPS prune
-      recentTapsRef.current = recentTapsRef.current.filter((ts) => now - ts <= 1000);
-      setCurrentCps(recentTapsRef.current.length);
+      const activeTaps = recentTapsRef.current.filter((ts) => now - ts <= 1000);
+      recentTapsRef.current = activeTaps;
+      const cpsLen = activeTaps.length;
+      setCurrentCps((prev) => (prev === cpsLen ? prev : cpsLen));
 
-      // Passive gain
+      // Passive gain scaled by tick interval
       const pps = passiveRef.current;
       if (pps > 0) {
-        const delta = pps / 10;
+        const delta = pps * (tickMs / 1000);
         setGame((prev) => ({
           ...prev,
           crystals: prev.crystals + delta,
@@ -463,16 +467,18 @@ export default function App() {
 
       // Fever heat decay if inactive
       if (feverSecondsRef.current <= 0 && now - lastTapMsRef.current > 1600) {
+        const decayStep = 0.09 * (tickMs / 200);
         setFeverMeter((m) => {
-          const next = Math.max(0, m - 0.045);
+          if (m <= 0) return 0;
+          const next = Math.max(0, m - decayStep);
           if (next === 0) setComboCount(0);
           return next;
         });
       }
-    }, 100);
+    }, tickMs);
 
     return () => window.clearInterval(interval);
-  }, [damageBoss]);
+  }, [damageBoss, game.isPotatoMode]);
 
   // 1-second timer: Overcharge, Fever, Boss countdown/autospawn, PlayTime, Daily reset, Midnight check
   useEffect(() => {
@@ -557,9 +563,11 @@ export default function App() {
     }
   }, [isCometVisible, cometMagnetLevel]);
 
-  // Persist progress periodically & on unload
+  // Persist progress reliably on steady 2.5s interval (only when dirty), tab hide, and unload
   useEffect(() => {
-    const timer = window.setTimeout(() => {
+    const persistNow = (force = false) => {
+      if (!force && !dirtyRef.current) return;
+      dirtyRef.current = false;
       try {
         window.localStorage.setItem(
           STORAGE_KEY,
@@ -568,23 +576,24 @@ export default function App() {
       } catch {
         // Ignore storage quota issues
       }
-    }, 350);
-    return () => window.clearTimeout(timer);
-  }, [game]);
+    };
 
-  useEffect(() => {
-    const saveOnUnload = () => {
-      try {
-        window.localStorage.setItem(
-          STORAGE_KEY,
-          JSON.stringify({ ...gameRef.current, lastActiveTimestampMs: Date.now() })
-        );
-      } catch {
-        // Ignore
+    const handleVisibility = () => {
+      if (document.hidden) {
+        persistNow(true);
       }
     };
-    window.addEventListener('beforeunload', saveOnUnload);
-    return () => window.removeEventListener('beforeunload', saveOnUnload);
+
+    const handleBeforeUnload = () => persistNow(true);
+
+    const periodicSave = window.setInterval(() => persistNow(false), 2500);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.clearInterval(periodicSave);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, []);
 
   const handleTapCrystal = useCallback(() => {
@@ -899,6 +908,7 @@ export default function App() {
         dailyDateKey: todayDateKey(),
         isVibrationEnabled: prev.isVibrationEnabled,
         isSoundEnabled: prev.isSoundEnabled,
+        isPotatoMode: prev.isPotatoMode,
         lastActiveTimestampMs: Date.now(),
       };
       try {
@@ -939,6 +949,7 @@ export default function App() {
       dailyClaimedIds: g.dailyClaimedIds,
       isVibrationEnabled: g.isVibrationEnabled,
       isSoundEnabled: g.isSoundEnabled,
+      isPotatoMode: g.isPotatoMode,
       upgrades: g.upgradeLevels,
       talents: g.talentLevels,
       achievements: g.claimedAchievements,
@@ -1001,6 +1012,7 @@ export default function App() {
         dailyClaimedIds: Array.isArray(parsed.dailyClaimedIds) ? (parsed.dailyClaimedIds as string[]) : [],
         isVibrationEnabled: (parsed.isVibrationEnabled as boolean) ?? true,
         isSoundEnabled: (parsed.isSoundEnabled as boolean) ?? true,
+        isPotatoMode: Boolean(parsed.isPotatoMode ?? false),
         upgradeLevels: clampedUpgrades,
         talentLevels: clampedTalents,
         claimedAchievements: Array.isArray(parsed.achievements) ? (parsed.achievements as string[]) : [],
@@ -1020,7 +1032,13 @@ export default function App() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#060814] via-[#0B1026] to-[#080B1A] text-slate-100 flex flex-col">
+    <div
+      className={`min-h-screen ${
+        game.isPotatoMode
+          ? 'bg-[#060814]'
+          : 'bg-gradient-to-b from-[#060814] via-[#0B1026] to-[#080B1A]'
+      } text-slate-100 flex flex-col`}
+    >
       {/* Compact Header */}
       <header className="w-full max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4 border-b border-slate-800/60">
         <h1 className="font-display text-base sm:text-lg font-bold tracking-tight text-slate-100 whitespace-nowrap truncate">
@@ -1131,6 +1149,7 @@ export default function App() {
               onTapCrystal={handleTapCrystal}
               onCatchComet={handleCatchComet}
               isVibrationEnabled={game.isVibrationEnabled}
+              isPotatoMode={game.isPotatoMode}
             />
           </div>
         </section>
@@ -1359,6 +1378,7 @@ export default function App() {
         <SettingsModal
           isVibrationEnabled={game.isVibrationEnabled}
           isSoundEnabled={game.isSoundEnabled}
+          isPotatoMode={game.isPotatoMode}
           totalClicks={game.totalClicks}
           criticalHits={game.criticalHits}
           cometsCaught={game.cometsCaught}
@@ -1369,6 +1389,9 @@ export default function App() {
           }
           onToggleSound={(enabled) =>
             setGame((prev) => ({ ...prev, isSoundEnabled: enabled }))
+          }
+          onTogglePotatoMode={(enabled) =>
+            setGame((prev) => ({ ...prev, isPotatoMode: enabled }))
           }
           onExportBackup={handleExportBackup}
           onImportBackup={handleImportBackup}

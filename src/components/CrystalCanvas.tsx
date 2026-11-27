@@ -23,6 +23,7 @@ interface CrystalCanvasProps {
   onTapCrystal: () => { gained: number; isCritical: boolean; isFever: boolean };
   onCatchComet: () => number;
   isVibrationEnabled: boolean;
+  isPotatoMode: boolean;
 }
 
 type ParticleStyle = 'SPARK' | 'INWARD_VOID' | 'MATRIX_BIT' | 'SNOWFLAKE';
@@ -69,6 +70,7 @@ export const CrystalCanvas: React.FC<CrystalCanvasProps> = ({
   onTapCrystal,
   onCatchComet,
   isVibrationEnabled,
+  isPotatoMode,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -95,7 +97,7 @@ export const CrystalCanvas: React.FC<CrystalCanvasProps> = ({
   const nextIdRef = useRef<number>(1);
 
   const starsRef = useRef<BgStar[]>(
-    Array.from({ length: 42 }, (_, i) => ({
+    Array.from({ length: 28 }, (_, i) => ({
       xFrac: ((i * 73 + 19) % 100) / 100,
       yFrac: ((i * 41 + 37) % 100) / 100,
       size: 0.9 + (i % 3) * 0.65,
@@ -105,7 +107,7 @@ export const CrystalCanvas: React.FC<CrystalCanvasProps> = ({
     }))
   );
 
-  // Latest state refs for smooth 60fps canvas loop
+  // Latest state refs for smooth canvas loop
   const propsRef = useRef({
     rankLevel,
     overchargeSecondsLeft,
@@ -115,6 +117,7 @@ export const CrystalCanvas: React.FC<CrystalCanvasProps> = ({
     selectedSkinId,
     selectedLocationId,
     bossIsActive: bossState.isActive,
+    isPotatoMode,
   });
   propsRef.current = {
     rankLevel,
@@ -125,10 +128,18 @@ export const CrystalCanvas: React.FC<CrystalCanvasProps> = ({
     selectedSkinId,
     selectedLocationId,
     bossIsActive: bossState.isActive,
+    isPotatoMode,
   };
 
-  // Device orientation & pointer parallax
+  // Device orientation & pointer parallax (disabled in Potato Mode)
   useEffect(() => {
+    if (isPotatoMode) {
+      tiltRef.current.x = 0;
+      tiltRef.current.y = 0;
+      tiltRef.current.targetX = 0;
+      tiltRef.current.targetY = 0;
+      return;
+    }
     const handleOrientation = (event: DeviceOrientationEvent) => {
       if (event.gamma === null || event.beta === null) return;
       const gx = Math.max(-1, Math.min(1, event.gamma / 35));
@@ -138,7 +149,7 @@ export const CrystalCanvas: React.FC<CrystalCanvasProps> = ({
     };
     window.addEventListener('deviceorientation', handleOrientation);
     return () => window.removeEventListener('deviceorientation', handleOrientation);
-  }, []);
+  }, [isPotatoMode]);
 
   // Dedicated TOP-LANE Comet trajectory (well above crystal tap zone)
   useEffect(() => {
@@ -255,15 +266,6 @@ export const CrystalCanvas: React.FC<CrystalCanvasProps> = ({
     };
 
     const render = (now: number) => {
-      const dt = Math.min((now - startTime) / 1000, 0.05);
-      startTime = now;
-
-      const dpr = window.devicePixelRatio || 1;
-      if (canvas.width !== ARENA_W * dpr || canvas.height !== ARENA_H * dpr) {
-        canvas.width = ARENA_W * dpr;
-        canvas.height = ARENA_H * dpr;
-      }
-
       const {
         rankLevel: lvl,
         overchargeSecondsLeft: overchargeSec,
@@ -273,137 +275,171 @@ export const CrystalCanvas: React.FC<CrystalCanvasProps> = ({
         selectedSkinId: skinId,
         selectedLocationId: locId,
         bossIsActive,
+        isPotatoMode: isPotato,
       } = propsRef.current;
 
-      // Smooth parallax interpolation
-      tiltRef.current.x += (tiltRef.current.targetX - tiltRef.current.x) * 0.12;
-      tiltRef.current.y += (tiltRef.current.targetY - tiltRef.current.y) * 0.12;
+      if (isPotato) {
+        const minFrameGap = Math.abs(scaleRef.current - 1) > 0.005 ? 32 : 66;
+        if (now - startTime < minFrameGap) {
+          animId = requestAnimationFrame(render);
+          return;
+        }
+      }
+
+      const dt = Math.min((now - startTime) / 1000, isPotato ? 0.1 : 0.05);
+      startTime = now;
+
+      const dpr = isPotato ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+      const targetW = Math.round(ARENA_W * dpr);
+      const targetH = Math.round(ARENA_H * dpr);
+      if (canvas.width !== targetW || canvas.height !== targetH) {
+        canvas.width = targetW;
+        canvas.height = targetH;
+      }
+
+      if (!isPotato) {
+        // Smooth parallax interpolation
+        tiltRef.current.x += (tiltRef.current.targetX - tiltRef.current.x) * 0.12;
+        tiltRef.current.y += (tiltRef.current.targetY - tiltRef.current.y) * 0.12;
+      }
 
       ctx.save();
       ctx.scale(dpr, dpr);
       ctx.clearRect(0, 0, ARENA_W, ARENA_H);
 
-      // Shake decay
+      // Shake decay (skipped in Potato Mode)
       let sx = 0;
       let sy = 0;
-      if (shakeRef.current.time > 0) {
+      if (!isPotato && shakeRef.current.time > 0) {
         shakeRef.current.time -= dt;
         const mag = (shakeRef.current.time / 0.18) * 5.5;
         sx = (Math.random() - 0.5) * 2 * mag;
         sy = (Math.random() - 0.5) * 2 * mag;
+      } else {
+        shakeRef.current.time = 0;
       }
 
-      if (flashAlphaRef.current > 0) {
+      if (!isPotato && flashAlphaRef.current > 0) {
         flashAlphaRef.current = Math.max(0, flashAlphaRef.current - dt * 3.4);
+      } else if (isPotato) {
+        flashAlphaRef.current = 0;
       }
 
-      // Spring physics
-      const stiffness = 260;
-      const damping = 16;
-      const force = (1 - scaleRef.current) * stiffness;
-      scaleVelocityRef.current += force * dt;
-      scaleVelocityRef.current *= Math.exp(-damping * dt);
-      scaleRef.current += scaleVelocityRef.current * dt;
+      // Spring physics (snappier decay in Potato Mode)
+      if (isPotato) {
+        scaleRef.current += (1 - scaleRef.current) * Math.min(1, dt * 18);
+        if (Math.abs(1 - scaleRef.current) < 0.002) scaleRef.current = 1;
+        scaleVelocityRef.current = 0;
+      } else {
+        const stiffness = 260;
+        const damping = 16;
+        const force = (1 - scaleRef.current) * stiffness;
+        scaleVelocityRef.current += force * dt;
+        scaleVelocityRef.current *= Math.exp(-damping * dt);
+        scaleRef.current += scaleVelocityRef.current * dt;
+      }
 
       const t = now * 0.001;
       const cx = ARENA_W / 2 + sx;
       const cy = CRYSTAL_CY + sy;
       const baseR = 76;
-      const pulse = 1 + Math.sin(t * 2.2) * 0.04;
+      const pulse = isPotato ? 1 : 1 + Math.sin(t * 2.2) * 0.04;
       const isOvercharged = overchargeSec > 0;
       const isFever = fSec > 0;
       const evolutionStage = lvl >= 150 ? 4 : lvl >= 100 ? 3 : lvl >= 50 ? 2 : 1;
 
-      // 1. Space Location Background & Parallax Starfield
-      const locCenter = { x: cx + tiltRef.current.x * 0.6, y: cy + tiltRef.current.y * 0.6 };
-      if (locId === 'nebula') {
-        const g = ctx.createRadialGradient(locCenter.x, locCenter.y, 12, locCenter.x, locCenter.y, 185);
-        g.addColorStop(0, 'rgba(139, 92, 246, 0.24)');
-        g.addColorStop(0.55, 'rgba(34, 211, 238, 0.09)');
-        g.addColorStop(1, 'rgba(6, 8, 20, 0)');
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, ARENA_W, ARENA_H);
-      } else if (locId === 'red_giant') {
-        const g = ctx.createRadialGradient(
-          locCenter.x - 30,
-          locCenter.y - 20,
-          14,
-          locCenter.x,
-          locCenter.y,
-          190
-        );
-        g.addColorStop(0, 'rgba(239, 68, 68, 0.30)');
-        g.addColorStop(0.5, 'rgba(249, 115, 22, 0.12)');
-        g.addColorStop(1, 'rgba(6, 8, 20, 0)');
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, ARENA_W, ARENA_H);
-      } else if (locId === 'asteroid_belt') {
-        const g = ctx.createRadialGradient(locCenter.x, locCenter.y, 10, locCenter.x, locCenter.y, 185);
-        g.addColorStop(0, 'rgba(20, 184, 166, 0.18)');
-        g.addColorStop(0.6, 'rgba(56, 189, 248, 0.07)');
-        g.addColorStop(1, 'rgba(6, 8, 20, 0)');
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, ARENA_W, ARENA_H);
+      if (!isPotato) {
+        // 1. Space Location Background & Parallax Starfield
+        const locCenter = { x: cx + tiltRef.current.x * 0.6, y: cy + tiltRef.current.y * 0.6 };
+        if (locId === 'nebula') {
+          const g = ctx.createRadialGradient(locCenter.x, locCenter.y, 12, locCenter.x, locCenter.y, 185);
+          g.addColorStop(0, 'rgba(139, 92, 246, 0.24)');
+          g.addColorStop(0.55, 'rgba(34, 211, 238, 0.09)');
+          g.addColorStop(1, 'rgba(6, 8, 20, 0)');
+          ctx.fillStyle = g;
+          ctx.fillRect(0, 0, ARENA_W, ARENA_H);
+        } else if (locId === 'red_giant') {
+          const g = ctx.createRadialGradient(
+            locCenter.x - 30,
+            locCenter.y - 20,
+            14,
+            locCenter.x,
+            locCenter.y,
+            190
+          );
+          g.addColorStop(0, 'rgba(239, 68, 68, 0.30)');
+          g.addColorStop(0.5, 'rgba(249, 115, 22, 0.12)');
+          g.addColorStop(1, 'rgba(6, 8, 20, 0)');
+          ctx.fillStyle = g;
+          ctx.fillRect(0, 0, ARENA_W, ARENA_H);
+        } else if (locId === 'asteroid_belt') {
+          const g = ctx.createRadialGradient(locCenter.x, locCenter.y, 10, locCenter.x, locCenter.y, 185);
+          g.addColorStop(0, 'rgba(20, 184, 166, 0.18)');
+          g.addColorStop(0.6, 'rgba(56, 189, 248, 0.07)');
+          g.addColorStop(1, 'rgba(6, 8, 20, 0)');
+          ctx.fillStyle = g;
+          ctx.fillRect(0, 0, ARENA_W, ARENA_H);
 
-        // Drifting background asteroids
-        for (let i = 0; i < 6; i++) {
-          const ax = ((i * 68 + t * (9 + i * 2)) % (ARENA_W + 40)) - 20 + tiltRef.current.x * 0.4;
-          const ay = 55 + ((i * 47) % (ARENA_H - 90)) + tiltRef.current.y * 0.4;
-          ctx.save();
-          ctx.translate(ax, ay);
-          ctx.rotate(t * 0.4 + i);
-          ctx.fillStyle = 'rgba(148, 163, 184, 0.18)';
-          ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          const r = 6 + (i % 3) * 3;
-          for (let v = 0; v < 6; v++) {
-            const ang = (Math.PI * 2 * v) / 6;
-            const vr = r * (v % 2 === 0 ? 1 : 0.72);
-            const vx = Math.cos(ang) * vr;
-            const vy = Math.sin(ang) * vr;
-            if (v === 0) ctx.moveTo(vx, vy);
-            else ctx.lineTo(vx, vy);
+          // Drifting background asteroids
+          for (let i = 0; i < 6; i++) {
+            const ax = ((i * 68 + t * (9 + i * 2)) % (ARENA_W + 40)) - 20 + tiltRef.current.x * 0.4;
+            const ay = 55 + ((i * 47) % (ARENA_H - 90)) + tiltRef.current.y * 0.4;
+            ctx.save();
+            ctx.translate(ax, ay);
+            ctx.rotate(t * 0.4 + i);
+            ctx.fillStyle = 'rgba(148, 163, 184, 0.18)';
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            const r = 6 + (i % 3) * 3;
+            for (let v = 0; v < 6; v++) {
+              const ang = (Math.PI * 2 * v) / 6;
+              const vr = r * (v % 2 === 0 ? 1 : 0.72);
+              const vx = Math.cos(ang) * vr;
+              const vy = Math.sin(ang) * vr;
+              if (v === 0) ctx.moveTo(vx, vy);
+              else ctx.lineTo(vx, vy);
+            }
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
           }
-          ctx.closePath();
-          ctx.fill();
-          ctx.stroke();
-          ctx.restore();
+        } else if (locId === 'deep_void') {
+          // Periodic shooting stars in Deep Void
+          const cycle = (t * 0.45) % 1;
+          if (cycle < 0.35) {
+            const p = cycle / 0.35;
+            const sx0 = 40 + p * 220;
+            const sy0 = 45 + p * 90;
+            const grad = ctx.createLinearGradient(sx0 - 34, sy0 - 14, sx0, sy0);
+            grad.addColorStop(0, 'rgba(255,255,255,0)');
+            grad.addColorStop(1, 'rgba(186,230,253,0.85)');
+            ctx.strokeStyle = grad;
+            ctx.lineWidth = 1.6;
+            ctx.beginPath();
+            ctx.moveTo(sx0 - 34, sy0 - 14);
+            ctx.lineTo(sx0, sy0);
+            ctx.stroke();
+          }
         }
-      } else if (locId === 'deep_void') {
-        // Periodic shooting stars in Deep Void
-        const cycle = (t * 0.45) % 1;
-        if (cycle < 0.35) {
-          const p = cycle / 0.35;
-          const sx0 = 40 + p * 220;
-          const sy0 = 45 + p * 90;
-          const grad = ctx.createLinearGradient(sx0 - 34, sy0 - 14, sx0, sy0);
-          grad.addColorStop(0, 'rgba(255,255,255,0)');
-          grad.addColorStop(1, 'rgba(186,230,253,0.85)');
-          ctx.strokeStyle = grad;
-          ctx.lineWidth = 1.6;
-          ctx.beginPath();
-          ctx.moveTo(sx0 - 34, sy0 - 14);
-          ctx.lineTo(sx0, sy0);
-          ctx.stroke();
-        }
-      }
 
-      // Parallax stars
-      starsRef.current.forEach((star, idx) => {
-        const px =
-          (star.xFrac * ARENA_W + tiltRef.current.x * star.depth + ARENA_W) % ARENA_W;
-        const py =
-          (star.yFrac * ARENA_H + tiltRef.current.y * star.depth + ARENA_H) % ARENA_H;
-        const twinkle = 0.65 + 0.35 * Math.sin(t * 2.5 + idx);
-        ctx.globalAlpha = star.alpha * twinkle;
-        ctx.fillStyle =
-          locId === 'red_giant' && idx % 3 === 0 ? '#FCA5A5' : star.tint;
-        ctx.beginPath();
-        ctx.arc(px, py, star.size, 0, Math.PI * 2);
-        ctx.fill();
-      });
-      ctx.globalAlpha = 1;
+        // Parallax stars
+        starsRef.current.forEach((star, idx) => {
+          const px =
+            (star.xFrac * ARENA_W + tiltRef.current.x * star.depth + ARENA_W) % ARENA_W;
+          const py =
+            (star.yFrac * ARENA_H + tiltRef.current.y * star.depth + ARENA_H) % ARENA_H;
+          const twinkle = 0.65 + 0.35 * Math.sin(t * 2.5 + idx);
+          ctx.globalAlpha = star.alpha * twinkle;
+          ctx.fillStyle =
+            locId === 'red_giant' && idx % 3 === 0 ? '#FCA5A5' : star.tint;
+          ctx.beginPath();
+          ctx.arc(px, py, star.size, 0, Math.PI * 2);
+          ctx.fill();
+        });
+        ctx.globalAlpha = 1;
+      }
 
       // 2. Fever Heat Circular Ring around crystal
       const ringR = baseR * 1.28;
@@ -426,24 +462,35 @@ export const CrystalCanvas: React.FC<CrystalCanvasProps> = ({
       }
 
       // 3. Ambient Aura Glow
-      const auraGlow = ctx.createRadialGradient(cx, cy, 8, cx, cy, baseR * 1.48 * pulse);
-      if (isFever || isOvercharged) {
-        auraGlow.addColorStop(0, 'rgba(251, 191, 36, 0.56)');
-        auraGlow.addColorStop(0.55, 'rgba(249, 115, 22, 0.20)');
-        auraGlow.addColorStop(1, 'rgba(6, 8, 20, 0)');
-      } else if (bossIsActive) {
-        auraGlow.addColorStop(0, 'rgba(239, 68, 68, 0.52)');
-        auraGlow.addColorStop(0.6, 'rgba(127, 29, 29, 0.18)');
-        auraGlow.addColorStop(1, 'rgba(6, 8, 20, 0)');
+      if (isPotato) {
+        ctx.fillStyle = isFever || isOvercharged
+          ? 'rgba(251, 191, 36, 0.14)'
+          : bossIsActive
+          ? 'rgba(239, 68, 68, 0.14)'
+          : 'rgba(139, 92, 246, 0.12)';
+        ctx.beginPath();
+        ctx.arc(cx, cy, baseR * 1.18, 0, Math.PI * 2);
+        ctx.fill();
       } else {
-        auraGlow.addColorStop(0, 'rgba(139, 92, 246, 0.42)');
-        auraGlow.addColorStop(0.55, 'rgba(34, 211, 238, 0.15)');
-        auraGlow.addColorStop(1, 'rgba(6, 8, 20, 0)');
+        const auraGlow = ctx.createRadialGradient(cx, cy, 8, cx, cy, baseR * 1.48 * pulse);
+        if (isFever || isOvercharged) {
+          auraGlow.addColorStop(0, 'rgba(251, 191, 36, 0.56)');
+          auraGlow.addColorStop(0.55, 'rgba(249, 115, 22, 0.20)');
+          auraGlow.addColorStop(1, 'rgba(6, 8, 20, 0)');
+        } else if (bossIsActive) {
+          auraGlow.addColorStop(0, 'rgba(239, 68, 68, 0.52)');
+          auraGlow.addColorStop(0.6, 'rgba(127, 29, 29, 0.18)');
+          auraGlow.addColorStop(1, 'rgba(6, 8, 20, 0)');
+        } else {
+          auraGlow.addColorStop(0, 'rgba(139, 92, 246, 0.42)');
+          auraGlow.addColorStop(0.55, 'rgba(34, 211, 238, 0.15)');
+          auraGlow.addColorStop(1, 'rgba(6, 8, 20, 0)');
+        }
+        ctx.fillStyle = auraGlow;
+        ctx.beginPath();
+        ctx.arc(cx, cy, baseR * 1.48 * pulse, 0, Math.PI * 2);
+        ctx.fill();
       }
-      ctx.fillStyle = auraGlow;
-      ctx.beginPath();
-      ctx.arc(cx, cy, baseR * 1.48 * pulse, 0, Math.PI * 2);
-      ctx.fill();
 
       // Orbital ring (classic & evolution stage)
       ctx.save();
@@ -474,36 +521,40 @@ export const CrystalCanvas: React.FC<CrystalCanvasProps> = ({
       if (drones > 0) {
         const orbitR = baseR * 1.38;
         for (let i = 0; i < drones; i++) {
-          const ang = t * (0.85 + (i % 3) * 0.18) + (Math.PI * 2 * i) / drones;
+          const ang = (isPotato ? 0.6 : t * (0.85 + (i % 3) * 0.18)) + (Math.PI * 2 * i) / drones;
           const dx = cx + Math.cos(ang) * orbitR;
           const dy = cy + Math.sin(ang) * orbitR * 0.84;
 
-          // Periodic laser burst
-          const beamPhase = (t * 1.3 + i * 0.73) % 2.4;
-          if (beamPhase < 0.22) {
-            ctx.strokeStyle = bossIsActive
-              ? 'rgba(248, 113, 113, 0.85)'
-              : 'rgba(34, 211, 238, 0.78)';
-            ctx.lineWidth = 1.6;
-            ctx.beginPath();
-            ctx.moveTo(dx, dy);
-            ctx.lineTo(cx, cy);
-            ctx.stroke();
+          if (!isPotato) {
+            // Periodic laser burst
+            const beamPhase = (t * 1.3 + i * 0.73) % 2.4;
+            if (beamPhase < 0.22) {
+              ctx.strokeStyle = bossIsActive
+                ? 'rgba(248, 113, 113, 0.85)'
+                : 'rgba(34, 211, 238, 0.78)';
+              ctx.lineWidth = 1.6;
+              ctx.beginPath();
+              ctx.moveTo(dx, dy);
+              ctx.lineTo(cx, cy);
+              ctx.stroke();
+            }
           }
 
           ctx.fillStyle = i % 2 === 0 ? '#22D3EE' : '#A78BFA';
           ctx.beginPath();
           ctx.arc(dx, dy, 3.6, 0, Math.PI * 2);
           ctx.fill();
-          ctx.fillStyle = '#FFFFFF';
-          ctx.beginPath();
-          ctx.arc(dx, dy, 1.4, 0, Math.PI * 2);
-          ctx.fill();
+          if (!isPotato) {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.beginPath();
+            ctx.arc(dx, dy, 1.4, 0, Math.PI * 2);
+            ctx.fill();
+          }
         }
       }
 
       // 5. Center Object: Boss Asteroid OR Chosen Crystal Skin
-      const bobY = Math.sin(t * 1.8) * 2.8;
+      const bobY = isPotato ? 0 : Math.sin(t * 1.8) * 2.8;
       ctx.save();
       ctx.translate(cx, cy + bobY);
       ctx.scale(scaleRef.current, scaleRef.current);
@@ -689,7 +740,7 @@ export const CrystalCanvas: React.FC<CrystalCanvasProps> = ({
       ctx.restore();
 
       // Critical Flash overlay
-      if (flashAlphaRef.current > 0.01) {
+      if (!isPotato && flashAlphaRef.current > 0.01) {
         const flashGrad = ctx.createRadialGradient(cx, cy, 4, cx, cy, baseR * 1.45);
         flashGrad.addColorStop(0, `rgba(255, 255, 255, ${flashAlphaRef.current})`);
         flashGrad.addColorStop(0.5, `rgba(251, 191, 36, ${flashAlphaRef.current * 0.6})`);
@@ -701,45 +752,49 @@ export const CrystalCanvas: React.FC<CrystalCanvasProps> = ({
       }
 
       // 6. Skin-specific Particle Physics
-      const alive: BurstParticle[] = [];
-      for (const p of particlesRef.current) {
-        p.life += dt;
-        if (p.life < p.maxLife) {
-          const frac = p.life / p.maxLife;
-          if (p.style === 'INWARD_VOID' && p.tx !== undefined && p.ty !== undefined) {
-            p.x += (p.tx - p.x) * Math.min(1, dt * 6.5);
-            p.y += (p.ty - p.y) * Math.min(1, dt * 6.5);
-          } else {
-            p.x += p.vx * dt;
-            p.y += p.vy * dt;
-            p.vx *= 0.94;
-            p.vy *= 0.94;
-          }
-          ctx.globalAlpha = 1 - frac;
-          ctx.fillStyle = p.color;
-
-          if (p.style === 'MATRIX_BIT') {
-            ctx.fillRect(p.x - p.size, p.y - p.size, p.size * 2, p.size * 2);
-          } else if (p.style === 'SNOWFLAKE') {
-            ctx.strokeStyle = p.color;
-            ctx.lineWidth = 1.3;
-            for (let k = 0; k < 3; k++) {
-              const a = (Math.PI * k) / 3;
-              ctx.beginPath();
-              ctx.moveTo(p.x - Math.cos(a) * p.size * 1.4, p.y - Math.sin(a) * p.size * 1.4);
-              ctx.lineTo(p.x + Math.cos(a) * p.size * 1.4, p.y + Math.sin(a) * p.size * 1.4);
-              ctx.stroke();
+      if (isPotato) {
+        particlesRef.current = [];
+      } else {
+        const alive: BurstParticle[] = [];
+        for (const p of particlesRef.current) {
+          p.life += dt;
+          if (p.life < p.maxLife) {
+            const frac = p.life / p.maxLife;
+            if (p.style === 'INWARD_VOID' && p.tx !== undefined && p.ty !== undefined) {
+              p.x += (p.tx - p.x) * Math.min(1, dt * 6.5);
+              p.y += (p.ty - p.y) * Math.min(1, dt * 6.5);
+            } else {
+              p.x += p.vx * dt;
+              p.y += p.vy * dt;
+              p.vx *= 0.94;
+              p.vy *= 0.94;
             }
-          } else {
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.globalAlpha = 1 - frac;
+            ctx.fillStyle = p.color;
+
+            if (p.style === 'MATRIX_BIT') {
+              ctx.fillRect(p.x - p.size, p.y - p.size, p.size * 2, p.size * 2);
+            } else if (p.style === 'SNOWFLAKE') {
+              ctx.strokeStyle = p.color;
+              ctx.lineWidth = 1.3;
+              for (let k = 0; k < 3; k++) {
+                const a = (Math.PI * k) / 3;
+                ctx.beginPath();
+                ctx.moveTo(p.x - Math.cos(a) * p.size * 1.4, p.y - Math.sin(a) * p.size * 1.4);
+                ctx.lineTo(p.x + Math.cos(a) * p.size * 1.4, p.y + Math.sin(a) * p.size * 1.4);
+                ctx.stroke();
+              }
+            } else {
+              ctx.beginPath();
+              ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+              ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+            alive.push(p);
           }
-          ctx.globalAlpha = 1;
-          alive.push(p);
         }
+        particlesRef.current = alive;
       }
-      particlesRef.current = alive;
 
       ctx.restore();
       animId = requestAnimationFrame(render);
@@ -757,13 +812,15 @@ export const CrystalCanvas: React.FC<CrystalCanvasProps> = ({
     isComet = false
   ) => {
     const id = nextIdRef.current++;
-    setFloatingNumbers((prev) => [...prev.slice(-14), { id, text, x, y, isCritical, isComet }]);
+    const maxLabels = isPotatoMode ? 3 : 7;
+    setFloatingNumbers((prev) => [...prev.slice(-maxLabels), { id, text, x, y, isCritical, isComet }]);
     window.setTimeout(() => {
       setFloatingNumbers((prev) => prev.filter((item) => item.id !== id));
     }, 860);
   };
 
   const spawnParticlesForTap = (tapX: number, tapY: number, isCritical: boolean) => {
+    if (isPotatoMode) return;
     const count = isCritical ? 14 : 7;
     if (selectedSkinId === 'black_hole') {
       // Pull particles inward from outer perimeter toward black hole center
@@ -783,6 +840,9 @@ export const CrystalCanvas: React.FC<CrystalCanvasProps> = ({
           size: isCritical ? 3.2 : 2.3,
           style: 'INWARD_VOID',
         });
+      }
+      if (particlesRef.current.length > 48) {
+        particlesRef.current = particlesRef.current.slice(-48);
       }
       return;
     }
@@ -817,9 +877,13 @@ export const CrystalCanvas: React.FC<CrystalCanvasProps> = ({
         style,
       });
     }
+    if (particlesRef.current.length > 48) {
+      particlesRef.current = particlesRef.current.slice(-48);
+    }
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isPotatoMode) return;
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
     const nx = ((e.clientX - rect.left) / rect.width - 0.5) * 2;
@@ -851,7 +915,7 @@ export const CrystalCanvas: React.FC<CrystalCanvasProps> = ({
     scaleRef.current = isCritical ? 0.79 : 0.85;
     scaleVelocityRef.current = 0;
 
-    if (isCritical) {
+    if (isCritical && !isPotatoMode) {
       flashAlphaRef.current = 0.75;
       shakeRef.current = { time: 0.18 };
     }
@@ -940,7 +1004,7 @@ export const CrystalCanvas: React.FC<CrystalCanvasProps> = ({
             }
             const { gained, isCritical, isFever } = onTapCrystal();
             scaleRef.current = 0.84;
-            if (isCritical) {
+            if (isCritical && !isPotatoMode) {
               flashAlphaRef.current = 0.75;
               shakeRef.current = { time: 0.18 };
             }

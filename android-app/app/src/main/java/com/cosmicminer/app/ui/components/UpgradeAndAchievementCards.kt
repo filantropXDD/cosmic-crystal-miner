@@ -50,7 +50,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -124,7 +123,7 @@ fun UpgradesList(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            items(upgrades, key = { it.definition.id }) { item ->
+            items(upgrades, key = { it.definition.id }, contentType = { "upgrade" }) { item ->
                 UpgradeCard(
                     item = item,
                     onBuy = { onBuyUpgrade(item.definition.id) }
@@ -220,10 +219,9 @@ private fun UpgradeCard(
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (isClickType) CosmicColors.NeonCyan else CosmicColors.NeonPurple,
                     contentColor = if (isClickType) Color(0xFF04131D) else Color.White,
-                    disabledContainerColor = CosmicColors.SurfaceElevated.copy(alpha = 0.55f),
-                    disabledContentColor = CosmicColors.TextSecondary.copy(alpha = 0.55f)
-                ),
-                modifier = Modifier.alpha(if (isBuyable || isMaxLevel) 1f else 0.6f)
+                    disabledContainerColor = CosmicColors.SurfaceElevated.copy(alpha = 0.45f),
+                    disabledContentColor = CosmicColors.TextSecondary.copy(alpha = 0.45f)
+                )
             ) {
                 if (isMaxLevel) {
                     Text(
@@ -263,7 +261,7 @@ fun AchievementsList(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        items(achievements, key = { it.definition.id }) { item ->
+        items(achievements, key = { it.definition.id }, contentType = { "achievement" }) { item ->
             AchievementCard(
                 item = item,
                 onClaim = { onClaimAchievement(item.definition.id) }

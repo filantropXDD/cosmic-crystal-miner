@@ -14,8 +14,8 @@ android {
         applicationId = "com.cosmicminer.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.2.0"
+        versionCode = 5
+        versionName = "1.2.1"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -30,9 +30,11 @@ android {
                 localKeystore.exists() -> localKeystore
                 encodedKeystore.exists() -> {
                     val out = layout.projectDirectory.file(".gradle/signing/debug.keystore").asFile
-                    out.parentFile.mkdirs()
-                    val cleanBase64 = encodedKeystore.readText().replace(Regex("\\s+"), "")
-                    out.writeBytes(Base64.getDecoder().decode(cleanBase64))
+                    if (!out.exists() || out.length() == 0L) {
+                        out.parentFile.mkdirs()
+                        val cleanBase64 = encodedKeystore.readText().replace(Regex("\\s+"), "")
+                        out.writeBytes(Base64.getDecoder().decode(cleanBase64))
+                    }
                     out
                 }
                 else -> null
